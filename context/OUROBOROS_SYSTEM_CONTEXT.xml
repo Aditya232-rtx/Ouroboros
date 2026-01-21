@@ -1,0 +1,420 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ouroboros_system_context>
+  <metadata>
+    <project_name>Ouroboros AI - Autonomous Security System</project_name>
+    <version>1.0</version>
+    <last_updated>2026-01-21</last_updated>
+    <status>Production Ready (V1)</status>
+    <critical_importance>HIGH - All context files are MANDATORY references</critical_importance>
+  </metadata>
+
+  <!-- CRITICAL: ALL agents and systems MUST reference these context files -->
+  <context_files_location>./context/</context_files_location>
+
+  <context_registry>
+    <file id="project_context" priority="CRITICAL" always_load="true">
+      <filename>Project_Context.md</filename>
+      <path>./context/Project_Context.md</path>
+      <description>Complete technical architecture, user workflow, technology stack, model configurations, and system integration patterns</description>
+      <contains>
+        - Executive overview and market opportunity
+        - V1 user workflow (10-phase end-to-end)
+        - Complete technology stack with HuggingFace links
+        - Model configurations (WhiteRabbitNeo, DeepSeek-R1, Phi-3.5)
+        - LangGraph orchestration patterns
+        - Security architecture and performance benchmarks
+      </contains>
+      <usage>Reference for ALL architecture decisions, model loading, and system design</usage>
+    </file>
+
+    <file id="agent_specifications" priority="CRITICAL" always_load="true">
+      <filename>02_AGENT_SPECIFICATIONS_V1_UPDATED.md</filename>
+      <path>./context/02_AGENT_SPECIFICATIONS_V1_UPDATED.md</path>
+      <description>Non-negotiable agent specifications with updated model configurations</description>
+      <contains>
+        - RED Agent (WhiteRabbitNeo 7B Q4_K_M) - Vulnerability discovery
+        - BLUE Agent (DeepSeek-R1-Distill 7B Q4_K_M) - Fix generation with chain-of-thought
+        - DOCUMENTATION Agent (Phi-3.5-mini 3.8B Q6_K) - Google Docs report generation
+        - GOVERNANCE Agent (Phi-3.5-mini 3.8B Q6_K) - Policy evaluation
+        - AUDIT Agent (Phi-3.5-mini 3.8B Q6_K) - Immutable logging
+        - Input/Output contracts for all agents
+        - Cross-agent contracts and verification loop requirements
+      </contains>
+      <usage>MANDATORY for implementing any agent. All agents MUST conform to these specifications</usage>
+    </file>
+
+    <file id="critical_do_not" priority="CRITICAL" always_load="true">
+      <filename>03_CRITICAL_DO_NOT_FILE_V1_UPDATED.md</filename>
+      <path>./context/03_CRITICAL_DO_NOT_FILE_V1_UPDATED.md</path>
+      <description>HARD STOPS - Violations result in system failure</description>
+      <contains>
+        - Security do-nots (production killers)
+        - LangGraph do-nots (orchestration killers)
+        - Agent do-nots (output killers)
+        - Data do-nots (audit killers)
+        - V1 do-nots (verification killers)
+        - Model do-nots (accuracy killers)
+        - Deployment do-nots (reliability killers)
+      </contains>
+      <usage>CHECK BEFORE EVERY IMPLEMENTATION. These are absolute constraints that CANNOT be violated</usage>
+    </file>
+
+    <file id="cyberattack_proof" priority="CRITICAL" always_load="true">
+      <filename>04_CYBERATTACK_PROOF_V1_UPDATED.md</filename>
+      <path>./context/04_CYBERATTACK_PROOF_V1_UPDATED.md</path>
+      <description>Security hardening instructions to prevent system compromise</description>
+      <contains>
+        - Defense-in-depth architecture
+        - RED/BLUE/DOCUMENTATION/GOVERNANCE/AUDIT agent hardening
+        - DeepSeek-R1 chain-of-thought reasoning validation
+        - Google Workspace OAuth security
+        - Input validation and sanitization patterns
+        - Network security and secrets management
+        - Monitoring and incident response playbook
+      </contains>
+      <usage>MANDATORY security patterns for all agent implementations. System MUST NOT be hackable</usage>
+    </file>
+
+    <file id="training_datasets" priority="HIGH" always_load="false">
+      <filename>05_TRAINING_DATASET_RESOURCES.md</filename>
+      <path>./context/05_TRAINING_DATASET_RESOURCES.md</path>
+      <description>Training data sources and fine-tuning instructions for specialized models</description>
+      <contains>
+        - RED Agent training data (Nuclei, NVD CVEs, CodeQL, Bug Bounty)
+        - BLUE Agent training data (Secure code examples, GitHub patches, OWASP)
+        - GOVERNANCE Agent training data (OPA policies, compliance mappings)
+        - AUDIT Agent training data (Event logs, digital signatures)
+        - Data preparation pipeline and QLoRA fine-tuning instructions
+      </contains>
+      <usage>Reference when fine-tuning quantized models for security-specific tasks</usage>
+    </file>
+
+    <file id="documentation_training" priority="HIGH" always_load="false">
+      <filename>05_DOCUMENTATION_TRAINING_V1.md</filename>
+      <path>./context/05_DOCUMENTATION_TRAINING_V1.md</path>
+      <description>Technical documentation generation patterns and training resources</description>
+      <contains>
+        - Google Docs formatting standards
+        - Security report templates
+        - Compliance evidence documentation
+        - MCP integration patterns for Google Workspace
+      </contains>
+      <usage>Reference for DOCUMENTATION Agent implementation and training</usage>
+    </file>
+
+    <file id="security_guide" priority="MEDIUM" always_load="false">
+      <filename>athenaguard-security-guide-1.pdf</filename>
+      <path>./context/athenaguard-security-guide-1.pdf</path>
+      <description>Security implementation patterns and best practices reference</description>
+      <usage>Additional security patterns for reference</usage>
+    </file>
+  </context_registry>
+
+  <model_configurations>
+    <critical_note>These are the ONLY approved models for V1. Do NOT substitute.</critical_note>
+
+    <model name="red_agent" role="Vulnerability Discovery">
+      <llm_name>WhiteRabbitNeo-7B</llm_name>
+      <quantization>Q4_K_M</quantization>
+      <huggingface_model_card>https://huggingface.co/White-Rabbit-Neo/White-Rabbit-Neo-7B</huggingface_model_card>
+      <huggingface_gguf>https://huggingface.co/White-Rabbit-Neo/White-Rabbit-Neo-7B-GGUF</huggingface_gguf>
+      <memory_footprint>4.5 GB VRAM</memory_footprint>
+      <inference_speed>30 tokens/second</inference_speed>
+      <temperature>0.3</temperature>
+      <max_tokens>2000</max_tokens>
+      <context_window>4096</context_window>
+      <specialization>Security reasoning, code analysis, attack planning, vulnerability classification</specialization>
+      <why_this_model>Specialized in security reasoning, trained on vulnerability patterns</why_this_model>
+    </model>
+
+    <model name="blue_agent" role="Fix Generation">
+      <llm_name>DeepSeek-R1-Distill Qwen 7B</llm_name>
+      <quantization>Q4_K_M</quantization>
+      <huggingface_model_card>https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B</huggingface_model_card>
+      <huggingface_gguf>https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF</huggingface_gguf>
+      <memory_footprint>4.8 GB VRAM</memory_footprint>
+      <inference_speed>25 tokens/second</inference_speed>
+      <temperature>0.2</temperature>
+      <max_tokens>4000</max_tokens>
+      <context_window>8192</context_window>
+      <special_features>
+        - Built-in chain-of-thought reasoning
+        - Superior multi-step vulnerability remediation
+        - Excellent test case generation
+      </special_features>
+      <specialization>Secure code fix generation with step-by-step reasoning</specialization>
+      <why_this_model>Chain-of-thought reasoning critical for complex security fixes</why_this_model>
+    </model>
+
+    <model name="support_agents" role="Governance/Documentation/Audit">
+      <llm_name>Phi-3.5-mini-instruct 3.8B</llm_name>
+      <quantization>Q6_K</quantization>
+      <huggingface_model_card>https://huggingface.co/microsoft/Phi-3.5-mini-instruct</huggingface_model_card>
+      <huggingface_gguf>https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF</huggingface_gguf>
+      <memory_footprint>3.2 GB VRAM</memory_footprint>
+      <inference_speed>50 tokens/second</inference_speed>
+      <temperature>0.1 (GOVERNANCE), 0.15 (DOCUMENTATION), 0.05 (AUDIT)</temperature>
+      <max_tokens>1500 (GOVERNANCE/AUDIT), 4000 (DOCUMENTATION)</max_tokens>
+      <context_window>4096</context_window>
+      <shared_by>
+        - GOVERNANCE Agent (policy evaluation)
+        - DOCUMENTATION Agent (Google Docs generation)
+        - AUDIT Agent (compliance logging)
+      </shared_by>
+      <specialization>Microsoft-tuned for instruction following, deterministic outputs</specialization>
+      <why_this_model>Fast, consistent, excellent for structured decision-making and technical writing</why_this_model>
+    </model>
+
+    <memory_requirements>
+      <sequential>4.8 GB (largest model: DeepSeek-R1)</sequential>
+      <parallel_all_agents>18.9 GB (4.5 + 4.8 + 3×3.2)</parallel_all_agents>
+      <recommended_hardware>
+        <dev_testing>24GB RAM, M4 Pro or RTX 4060 Ti (16GB VRAM)</dev_testing>
+        <production>32GB RAM, RTX 4090 (24GB VRAM) or A6000 (48GB VRAM)</production>
+      </recommended_hardware>
+    </memory_requirements>
+  </model_configurations>
+
+  <core_principles>
+    <principle id="context_first">
+      <title>Context Files are Source of Truth</title>
+      <description>ALL implementation decisions MUST reference context files. Never make assumptions.</description>
+      <enforcement>MANDATORY</enforcement>
+    </principle>
+
+    <principle id="verification_loop">
+      <title>RED-BLUE Verification Loop</title>
+      <description>BLUE generates fix → RED attacks fix with original PoC → Loop until verified</description>
+      <v1_constraint>No auto-merge. All fixes create PR for human review</v1_constraint>
+      <enforcement>CRITICAL</enforcement>
+    </principle>
+
+    <principle id="safety_gates">
+      <title>5-Layer Safety Gates</title>
+      <description>ALL fixes must pass 5 safety gates before deployment consideration</description>
+      <gates>
+        1. Input Validation
+        2. No New Vulnerabilities (Semgrep scan)
+        3. Backward Compatibility (100% test pass)
+        4. Performance (&lt;10% overhead)
+        5. Test Coverage (&gt;80%)
+      </gates>
+      <enforcement>MANDATORY</enforcement>
+    </principle>
+
+    <principle id="immutable_audit">
+      <title>Immutable Audit Trail</title>
+      <description>Every action logged to immudb with cryptographic signatures</description>
+      <compliance>SOC2, ISO27001, GDPR, HIPAA, PCI-DSS</compliance>
+      <enforcement>MANDATORY</enforcement>
+    </principle>
+
+    <principle id="sandboxing">
+      <title>Docker Sandboxing for All Generated Code</title>
+      <description>NEVER execute generated code directly. Always use Docker with resource limits</description>
+      <enforcement>CRITICAL</enforcement>
+    </principle>
+  </core_principles>
+
+  <workflow_phases>
+    <phase number="1" name="User Initiates Scan">
+      <user_action>Enter GitHub repo URL</user_action>
+      <system_response>Validate URL, clone repo, create scan job</system_response>
+    </phase>
+
+    <phase number="2" name="RED Agent Discovery">
+      <duration>60-120 seconds</duration>
+      <actions>Scan with Nuclei/Semgrep/Checkov/CodeQL, generate PoCs, classify by CWE/CVSS</actions>
+      <output>5-20 high-confidence vulnerabilities</output>
+    </phase>
+
+    <phase number="3" name="Documentation Agent Initial Report">
+      <duration>10-15 seconds</duration>
+      <actions>Create Google Doc with findings via MCP</actions>
+      <output>Live-updating vulnerability report</output>
+    </phase>
+
+    <phase number="4" name="Governance Agent Prioritization">
+      <duration>5 seconds</duration>
+      <actions>Calculate risk scores, apply OPA policies, prioritize fixes</actions>
+      <output>Prioritized fix queue</output>
+    </phase>
+
+    <phase number="5" name="BLUE Agent Fix Generation">
+      <duration>30-60 seconds per vuln</duration>
+      <actions>Generate 3 fix options, validate safety gates, test in Docker sandbox</actions>
+      <output>Validated fixes with confidence scores</output>
+    </phase>
+
+    <phase number="6" name="RED Agent Verification Loop">
+      <duration>20-30 seconds per fix</duration>
+      <actions>Re-attack fixed code with original PoC, verify vulnerability is gone</actions>
+      <output>Verified fixes (or loop back to BLUE)</output>
+      <critical>This is the key differentiator - proof that fixes work</critical>
+    </phase>
+
+    <phase number="7" name="Audit Agent Logging">
+      <duration>Ongoing</duration>
+      <actions>Log all events to immudb with digital signatures</actions>
+      <output>Immutable compliance trail</output>
+    </phase>
+
+    <phase number="8" name="Documentation Agent Final Report">
+      <duration>30-60 seconds</duration>
+      <actions>Update Google Doc with complete findings, fixes, and compliance evidence</actions>
+      <output>Complete security analysis document</output>
+    </phase>
+
+    <phase number="9" name="BLUE Agent Creates PR">
+      <duration>10-15 seconds</duration>
+      <actions>Create GitHub branch, commit fixes, open PR with detailed description</actions>
+      <output>Ready-to-review PR</output>
+    </phase>
+
+    <phase number="10" name="Human Review and Merge">
+      <duration>Variable</duration>
+      <v1_requirement>2x human code review minimum before merge</v1_requirement>
+      <actions>Human approves PR, merges to production</actions>
+    </phase>
+  </workflow_phases>
+
+  <critical_constraints_v1>
+    <constraint id="no_auto_merge">
+      <title>NO AUTO-MERGE IN V1</title>
+      <description>All fixes MUST create PR and require human approval</description>
+      <rationale>V1 is MVP. Safety first. Humans must review every change</rationale>
+      <enforcement>ABSOLUTE</enforcement>
+    </constraint>
+
+    <constraint id="verification_required">
+      <title>RED Verification Required</title>
+      <description>Every fix MUST be verified by re-attacking with original PoC</description>
+      <enforcement>MANDATORY</enforcement>
+    </constraint>
+
+    <constraint id="google_docs_integration">
+      <title>Google Docs via MCP</title>
+      <description>DOCUMENTATION Agent MUST use Google Workspace MCP for report generation</description>
+      <authentication>OAuth 2.0 service account from AWS Secrets Manager</authentication>
+      <enforcement>MANDATORY</enforcement>
+    </constraint>
+
+    <constraint id="model_specialization">
+      <title>Model-to-Agent Mapping</title>
+      <description>Each agent MUST use its designated model. No substitutions</description>
+      <red>WhiteRabbitNeo 7B Q4_K_M</red>
+      <blue>DeepSeek-R1-Distill 7B Q4_K_M</blue>
+      <support>Phi-3.5-mini 3.8B Q6_K</support>
+      <enforcement>ABSOLUTE</enforcement>
+    </constraint>
+  </critical_constraints_v1>
+
+  <integration_stack>
+    <orchestration>
+      <framework>LangGraph</framework>
+      <version>0.1.0+</version>
+      <purpose>Multi-agent workflow orchestration with state management</purpose>
+    </orchestration>
+
+    <llm_integration>
+      <framework>LangChain</framework>
+      <purpose>LLM abstraction layer</purpose>
+    </llm_integration>
+
+    <red_team_automation>
+      <framework>PyRIT (Microsoft)</framework>
+      <purpose>Orchestrate Nuclei, Semgrep, Checkov, CodeQL</purpose>
+    </red_team_automation>
+
+    <google_workspace>
+      <framework>Google Workspace MCP</framework>
+      <purpose>Google Docs API integration</purpose>
+    </google_workspace>
+
+    <immutable_ledger>
+      <database>immudb</database>
+      <purpose>Tamper-proof audit trail</purpose>
+    </immutable_ledger>
+
+    <policy_engine>
+      <framework>Open Policy Agent (OPA)</framework>
+      <language>Rego</language>
+      <purpose>Risk-based governance decisions</purpose>
+    </policy_engine>
+  </integration_stack>
+
+  <development_workflow>
+    <step number="1">Read ALL context files in ./context/ folder</step>
+    <step number="2">Reference 03_CRITICAL_DO_NOT_FILE before implementing ANYTHING</step>
+    <step number="3">Implement agents according to 02_AGENT_SPECIFICATIONS</step>
+    <step number="4">Follow security patterns from 04_CYBERATTACK_PROOF</step>
+    <step number="5">Use Project_Context.md for architecture decisions</step>
+    <step number="6">Test verification loop thoroughly (RED → BLUE → RED cycle)</step>
+    <step number="7">Validate all 5 safety gates pass before considering fix valid</step>
+    <step number="8">Create PR (never auto-merge in V1)</step>
+  </development_workflow>
+
+  <file_references>
+    <always_check>
+      <file>./context/03_CRITICAL_DO_NOT_FILE_V1_UPDATED.md</file>
+      <reason>Prevents critical mistakes</reason>
+      <frequency>Before every implementation decision</frequency>
+    </always_check>
+
+    <always_refer>
+      <file>./context/02_AGENT_SPECIFICATIONS_V1_UPDATED.md</file>
+      <reason>Agent contracts are non-negotiable</reason>
+      <frequency>When implementing any agent</frequency>
+    </always_refer>
+
+    <security_reference>
+      <file>./context/04_CYBERATTACK_PROOF_V1_UPDATED.md</file>
+      <reason>System must be unhackable</reason>
+      <frequency>When implementing any security-sensitive code</frequency>
+    </security_reference>
+
+    <architecture_reference>
+      <file>./context/Project_Context.md</file>
+      <reason>Complete system architecture and patterns</reason>
+      <frequency>When designing new features or integrations</frequency>
+    </architecture_reference>
+  </file_references>
+
+  <success_criteria>
+    <criterion id="context_compliance">
+      All implementations reference and comply with context files
+    </criterion>
+    <criterion id="verification_loop">
+      RED-BLUE verification loop works (PoC fails after fix = proof)
+    </criterion>
+    <criterion id="safety_gates">
+      All 5 safety gates implemented and enforced
+    </criterion>
+    <criterion id="immutable_audit">
+      Every action logged to immudb with signatures
+    </criterion>
+    <criterion id="no_auto_merge">
+      All fixes create PR (no auto-merge in V1)
+    </criterion>
+    <criterion id="google_docs">
+      DOCUMENTATION Agent generates live Google Docs
+    </criterion>
+    <criterion id="model_correctness">
+      Correct models loaded for each agent (WhiteRabbitNeo, DeepSeek-R1, Phi-3.5)
+    </criterion>
+  </success_criteria>
+
+  <escalation_protocol>
+    <when>Context file violation detected</when>
+    <action>STOP immediately and review context files</action>
+
+    <when>Critical DO-NOT violated</when>
+    <action>HALT development, escalate to security lead</action>
+
+    <when>Verification loop fails</when>
+    <action>Loop back to BLUE Agent (max 10 iterations, then escalate to human)</action>
+
+    <when>Safety gate fails</when>
+    <action>Reject fix (confidence = 0.0, recommendation = REJECT)</action>
+  </escalation_protocol>
+</ouroboros_system_context>
