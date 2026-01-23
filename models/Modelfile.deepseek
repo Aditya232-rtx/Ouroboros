@@ -1,0 +1,18 @@
+# BLUE Agent Modelfile - DeepSeek-Coder 1.3B
+FROM /Users/adityajadhav/ouroboros/Ouroboros/models/deepseek-coder-1.3b-instruct.Q6_K.gguf
+
+TEMPLATE """{{ if .System }}### System:
+{{ .System }}
+{{ end }}{{ if .Prompt }}### Instruction:
+{{ .Prompt }}
+
+### Response:
+{{ end }}"""
+
+PARAMETER temperature 0.2
+PARAMETER num_ctx 4096
+PARAMETER top_p 0.85
+PARAMETER repeat_penalty 1.05
+PARAMETER num_gpu 1
+
+SYSTEM """You are a security remediation AI specializing in generating safe, tested code fixes."""
