@@ -43,9 +43,10 @@ secrets/
 config.json
 credentials.json
 
-# Models - Large files
-Ouroboros/models/*.gguf
-# Note: models are already tracked, keeping them
+# Models - Large GGUF files (models/ directory, NOT src/models/)
+models/*.gguf
+models/*.bin
+# Note: These are large model files that should not be committed
 
 # Data & Logs
 logs/
@@ -85,3 +86,5 @@ temp/
 # Monitoring
 prometheus_data/
 grafana_data/
+
+.backup_local_work/

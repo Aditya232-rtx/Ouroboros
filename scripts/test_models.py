@@ -43,11 +43,7 @@ def test_model_loading():
                 
                 # Test simple inference
                 test_prompt = "Hello, test"
-                response = model.create_completion(
-                    prompt=test_prompt,
-                    max_tokens=10,
-                    temperature=0.1
-                )
+                response = model.invoke(test_prompt)
                 
                 logger.info(f"   ✅ Inference test passed")
                 results[agent_name] = "SUCCESS"
