@@ -156,17 +156,65 @@ class OuroborosWorkflow:
         return state
     
     async def _red_verify_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 5: RED Agent verifies fixes"""
-        logger.info("Verifying fixes with RED Agent")
+        """
+        Node 5: RED Agent verifies fixes using PoC exploits.
+        
+        Per 03_CRITICAL_DO_NOT: Must run in Docker sandbox
+        Per VERIFICATION_LOOP: Max 10 retries
+        """
+        logger.info("Verifying fixes with RED Agent re-attack...")
+        
+        from src.verification.verification_engine import VerificationEngine
+        from src.tools.docker_sandbox import docker_sandbox
+        
+        # Initialize verification engine
+        engine = VerificationEngine()
         
         verification_results = []
         for fix in state["fixes"]:
-            result = await self.red_agent.execute({
-                "action": "verify",
-                "fix": fix,
-                "poc_code": fix.get("original_poc", "")
-            })
-            verification_results.append(result)
+            # Get the original vulnerability
+            vuln = next(
+                (v for v in state["vulnerabilities"] if v.get("id") == fix.get("vulnerability_id")),
+                None
+            )
+            
+            if not vuln:
+                logger.error(f"Vulnerability not found for fix {fix.get('fix_id')}")
+                verification_results.append({
+                    "fix_id": fix.get("fix_id"),
+                    "verified": False,
+                    "error": "Original vulnerability not found"
+                })
+                continue
+            
+            # Verify fix
+            try:
+                result = await engine.verify_fix(
+                    fix_code=fix.get("code_diff", {}).get("after", ""),
+                    original_vulnerability=vuln,
+                    sandbox=docker_sandbox
+                )
+                
+                verification_results.append({
+                    "fix_id": fix.get("fix_id"),
+                    "vulnerability_id": vuln.get("id"),
+                    "verified": result.get("verified", False),
+                    "poc_failed": result.get("poc_failed", False),  # Good: exploit failed
+                    "details": result
+                })
+                
+                logger.info(
+                    f"Fix {fix.get('fix_id')}: "
+                    f"{'✅ VERIFIED' if result.get('verified') else '❌ FAILED'}"
+                )
+                
+            except Exception as e:
+                logger.error(f"Verification failed for {fix.get('fix_id')}: {e}")
+                verification_results.append({
+                    "fix_id": fix.get("fix_id"),
+                    "verified": False,
+                    "error": str(e)
+                })
         
         state["verification_results"] = verification_results
         state["current_phase"] = "verification_complete"
@@ -206,13 +254,74 @@ class OuroborosWorkflow:
         return state
     
     async def _create_pr_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 8: Create GitHub PR"""
+        """Node 8: Create GitHub PR using real GitHub API."""
         logger.info("Creating GitHub PR")
         
-        # TODO: Implement GitHub API integration
-        state["pr_url"] = f"https://github.com/{state['repo_url']}/pull/TODO"
-        state["pr_number"] = 0
-        state["current_phase"] = "pr_created"
+        try:
+            from src.integrations.github_api import github_client
+            
+            # Extract repo info from state
+            repo_url = state.get("repo_url", "")
+            # Parse owner/repo from URL
+            if "github.com" in repo_url:
+                parts = repo_url.rstrip("/").split("/")
+                repo_full_name = f"{parts[-2]}/{parts[-1]}"
+            else:
+                repo_full_name = repo_url
+            
+            # Create branch name
+            branch_name = f"ouroboros/security-fix-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            
+            # Prepare PR body with vulnerability summary
+            vulns = state.get("vulnerabilities", [])
+            fixes = state.get("fixes", [])
+            
+            pr_body = f"""## Ouroboros AI Security Fix
+
+### Vulnerabilities Fixed: {len(fixes)}
+
+| Vulnerability | Severity | Status |
+|---------------|----------|--------|
+"""
+            for fix in fixes[:10]:  # Limit to 10 in PR description
+                vuln_id = fix.get("vulnerability_id", "N/A")
+                severity = fix.get("severity", "N/A")
+                status = "✅ Fixed" if fix.get("verified") else "⚠️ Needs Review"
+                pr_body += f"| {vuln_id} | {severity} | {status} |\n"
+            
+            pr_body += f"""
+### Automated Security Report
+- Full Report: {state.get('final_report_url', 'N/A')}
+- Initial Scan: {state.get('report_url', 'N/A')}
+
+### Compliance
+This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
+
+**⚠️ REQUIRES 2x HUMAN REVIEW BEFORE MERGE (Per V1 Policy)**
+"""
+            
+            # Create the PR
+            pr_result = github_client.create_pull_request(
+                repo_full_name=repo_full_name,
+                title=f"[Ouroboros] Security Fix: {len(fixes)} vulnerabilities",
+                body=pr_body,
+                head_branch=branch_name,
+                base_branch=state.get("branch", "main"),
+                reviewers=state.get("reviewers", [])
+            )
+            
+            state["pr_url"] = pr_result.get("pr_url", "")
+            state["pr_number"] = pr_result.get("pr_number", 0)
+            state["current_phase"] = "pr_created"
+            
+            logger.info(f"Created PR: {state['pr_url']}")
+            
+        except Exception as e:
+            logger.error(f"GitHub PR creation failed: {e}")
+            state["pr_url"] = ""
+            state["pr_number"] = 0
+            state["pr_error"] = str(e)
+            state["current_phase"] = "pr_failed"
         
         return state
     

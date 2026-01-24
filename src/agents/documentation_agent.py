@@ -102,7 +102,7 @@ FORMAT: Use headers, code blocks, tables, bullet points. Professional and concis
             # Generate report content
             content = await self._generate_report(input_data)
             
-            # Create Google Doc (simulated for now)
+            # Create Google Doc via MCP integration
             doc_info = await self._create_google_doc(content, input_data)
             
             # Calculate summary
@@ -155,20 +155,63 @@ Generate a comprehensive security report."""
         data: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
-        Create Google Doc via MCP
+        Create Google Doc via Google Workspace MCP integration.
         
-        TODO: Implement actual Google Workspace MCP integration
+        Falls back to local markdown if Google APIs unavailable.
         """
-        self.logger.info("Creating Google Doc (simulated)...")
-        
         repo_name = data.get("metadata", {}).get("repo_name", "unknown")
         timestamp = datetime.now().strftime("%Y-%m-%d")
+        title = f"Ouroboros Security Report - {repo_name} - {timestamp}"
         
-        # Simulated doc info
+        try:
+            from src.integrations.google_workspace_mcp import GoogleWorkspaceMCP
+            
+            # Initialize MCP client
+            mcp = GoogleWorkspaceMCP()
+            
+            # Create the document
+            doc_info = mcp.create_document(
+                title=title,
+                content=content
+            )
+            
+            self.logger.info(f"Created Google Doc: {doc_info.get('doc_url')}")
+            
+            return {
+                "doc_id": doc_info.get("doc_id", ""),
+                "doc_url": doc_info.get("doc_url", ""),
+                "title": title,
+                "created_at": datetime.now().isoformat(),
+                "last_updated": datetime.now().isoformat()
+            }
+            
+        except ImportError:
+            self.logger.warning("Google Workspace MCP not available")
+        except Exception as e:
+            self.logger.error(f"Google Docs creation failed: {e}")
+        
+        # Fallback: Save as local markdown file
+        self.logger.info("Falling back to local markdown file...")
+        
+        import os
+        import tempfile
+        
+        # Create reports directory if needed
+        reports_dir = os.path.join(tempfile.gettempdir(), "ouroboros_reports")
+        os.makedirs(reports_dir, exist_ok=True)
+        
+        # Save report as markdown
+        report_file = os.path.join(reports_dir, f"report-{repo_name}-{timestamp}.md")
+        with open(report_file, "w") as f:
+            f.write(f"# {title}\n\n")
+            f.write(content)
+        
+        self.logger.info(f"Saved report to: {report_file}")
+        
         return {
-            "doc_id": f"google-doc-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            "doc_url": f"https://docs.google.com/document/d/simulated-{repo_name}",
-            "title": f"Ouroboros Security Report - {repo_name} - {timestamp}",
+            "doc_id": f"local-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+            "doc_url": f"file://{report_file}",
+            "title": title,
             "created_at": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat()
         }
