@@ -36,6 +36,7 @@ ENV/
 # Secrets - CRITICAL: NEVER COMMIT
 secrets/
 .env
+.env*
 *.pem
 *.key
 *service-account*.json
@@ -91,4 +92,32 @@ temp/
 prometheus_data/
 grafana_data/
 
-.backup_local_work/
+# Node.js / Next.js (from frontend-v1)
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Next.js
+/.next/
+/out/
+
+# Production build
+/build
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
