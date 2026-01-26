@@ -22,8 +22,15 @@ async def audit_node(state: OuroborosState) -> OuroborosState:
     audit_agent = AuditAgent()
     
     result = await audit_agent.execute({
-        "workflow_state": state,
-        "event_type": "workflow_complete"
+        "event_type": "workflow_complete",
+        "entity_id": state.get("scan_id", "unknown"),
+        "details": {
+            "repo_url": state.get("repo_url"),
+            "status": "success",
+            "vulnerabilities_found": len(state.get("vulnerabilities", [])),
+            "fixes_applied": len(state.get("fixes", [])),
+            "verification_rate": f"{state.get('verification_results', [])}"
+        }
     })
     
     state["audit_entries"] = result.get("audit_ids", [])

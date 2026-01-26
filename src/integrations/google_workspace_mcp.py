@@ -130,6 +130,43 @@ class GoogleWorkspaceClient:
             logger.error(f"Failed to update document: {e}")
             raise
     
+    def update_section(
+        self,
+        doc_id: str,
+        section_heading: str,
+        content: str
+    ):
+        """
+        Update specific section of the document.
+        Uses replaceAllText with strict matching for placeholders like [SECTION_NAME].
+        """
+        if not self.docs_service:
+            raise ValueError("Google Docs service not initialized")
+        
+        logger.info(f"Updating section '{section_heading}' in {doc_id}")
+        
+        try:
+            requests = [{
+                'replaceAllText': {
+                    'containsText': {
+                        'text': f"[{section_heading}]",
+                        'matchCase': True
+                    },
+                    'replaceText': content
+                }
+            }]
+            
+            self.docs_service.documents().batchUpdate(
+                documentId=doc_id,
+                body={'requests': requests}
+            ).execute()
+            
+            logger.info(f"Updated section '{section_heading}'")
+            
+        except HttpError as e:
+            logger.error(f"Failed to update section: {e}")
+            raise
+    
     def share_document(
         self, 
         doc_id: str,

@@ -57,7 +57,7 @@ class Scan(Base):
     # Metadata
     user_id = Column(String(100))
     error_message = Column(Text)
-    metadata = Column(JSON)
+    scan_metadata = Column(JSON)
     
     # Relationships
     vulnerabilities = relationship("Vulnerability", back_populates="scan", cascade="all, delete-orphan")
@@ -180,3 +180,20 @@ class AuditEvent(Base):
     
     # Relationships
     scan = relationship("Scan", back_populates="audit_events")
+
+
+class User(Base):
+    """User model for authentication"""
+    __tablename__ = "users"
+    
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String(100), unique=True, nullable=False, index=True)
+    email = Column(String(255), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    full_name = Column(String(255))
+    is_active = Column(Boolean, default=True)
+    
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+

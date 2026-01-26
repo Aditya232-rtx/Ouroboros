@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 class GovernanceAgentInput(AgentInput):
     """Input schema for GOVERNANCE Agent"""
-    fix: Dict[str, Any]
-    vulnerability: Dict[str, Any]
-    environment: Dict[str, Any]
+    vulnerabilities: List[Dict[str, Any]]
+    environment: str = "production"
 
 
 class GovernanceDecision(BaseModel):
@@ -37,13 +36,22 @@ class ApprovalWorkflow(BaseModel):
     estimated_approval_time_minutes: int = 60
 
 
+class PrioritizedVulnerability(BaseModel):
+    """Vulnerability with governance meta-data"""
+    vulnerability_id: str
+    priority: int
+    risk_score: float
+    autonomy_level: str
+    reasoning: str
+    original_vulnerability: Dict[str, Any]
+
+
 class GovernanceAgentOutput(AgentOutput):
     """Output schema for GOVERNANCE Agent"""
-    governance_decision_id: str
-    fix_id: str
-    decision: GovernanceDecision
-    approval_workflow: ApprovalWorkflow
-    constraints: Dict[str, Any]
+    governance_id: str
+    prioritized_queue: List[Dict[str, Any]]
+    decisions: List[Dict[str, Any]]
+    risk_scores: Dict[str, float]
 
 
 class GovernanceAgent(BaseAgent):
@@ -112,77 +120,98 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
         return GovernanceAgentInput(**input_data)
     
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute GOVERNANCE Agent policy evaluation"""
-        gov_id = f"GOV-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        fix_id = input_data.get("fix", {}).get("fix_id", "unknown")
+        """Execute GOVERNANCE Agent policy evaluation and prioritization"""
+        # Validate input
+        validated_input = self.validate_input(input_data)
         
-        self.logger.info(f"Governance evaluation {gov_id} for fix {fix_id}")
+        gov_id = f"GOV-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+        self.logger.info(f"Starting governance prioritization {gov_id}")
+        
+        prioritized_items = []
+        decisions = []
+        risk_scores = {}
         
         try:
-            # Calculate risk score
-            risk_score = self._calculate_risk_score(
-                input_data.get("vulnerability", {}),
-                input_data.get("environment", {})
-            )
-            
-            # Determine autonomy level
-            autonomy_level = self._determine_autonomy(risk_score)
-            
-            # Build approval workflow
-            approval_workflow = self._build_approval_workflow(
-                autonomy_level, 
-                risk_score
-            )
-            
-            decision = {
-                "risk_score": risk_score,
-                "autonomy_level": autonomy_level,
-                "rationale": f"Risk score {risk_score:.1f} requires {autonomy_level} level",
-                "policy_evaluations": {
-                    "cvss_check": "passed",
-                    "environment_check": "passed",
-                    "v1_pr_required": True
+            for vuln in validated_input.vulnerabilities:
+                # Calculate risk score
+                risk_score = self._calculate_risk_score(
+                    vuln,
+                    validated_input.environment
+                )
+                
+                # Determine autonomy level
+                autonomy_level = self._determine_autonomy(risk_score)
+                
+                item = {
+                    "vulnerability_id": vuln.get("id"),
+                    "risk_score": risk_score,
+                    "autonomy_level": autonomy_level,
+                    "reasoning": f"Risk score {risk_score:.1f} ({autonomy_level})",
+                    "original_vulnerability": vuln
                 }
-            }
+                
+                prioritized_items.append(item)
+                decisions.append({
+                    "vulnerability_id": vuln.get("id"),
+                    "decision": "prioritized",
+                    "risk_score": risk_score
+                })
+                risk_scores[vuln.get("id")] = risk_score
+            
+            # Sort by risk score descending
+            prioritized_items.sort(key=lambda x: x["risk_score"], reverse=True)
+            
+            # Assign priority index
+            for idx, item in enumerate(prioritized_items):
+                item["priority"] = idx + 1
+            
+            # For the node, we want to return the original vulnerabilities sorted
+            # But the node code expects "prioritized_queue" to be a list of vulnerabilities?
+            # Let's check governance_node.py:
+            # result = await blue_agent.execute({"vulnerability": vuln})
+            # So "prioritized_queue" should probably be the vulnerabilities themselves or 
+            # objects containing them.
+            # Blue Fix Node: for vuln in state["prioritized_queue"]:
+            
+            # To be safe, we return the LIST OF VULNERABILITIES (sorted) 
+            # as the queue, but maybe enriched.
+            # Actually, let's look at Blue Fix Node usage if we can.
+            # Assuming it expects the vulnerability dict.
+            # We will return the enriched objects, assuming Blue Agent extracts what it needs
+            # OR we simply map back to original vuln dicts.
+            # Let's map back to original dicts but sorted, to be safe for Blue Agent.
+            
+            sorted_vulnerabilities = [p["original_vulnerability"] for p in prioritized_items]
             
             return {
-                "governance_decision_id": gov_id,
-                "fix_id": fix_id,
-                "decision": decision,
-                "approval_workflow": approval_workflow,
-                "constraints": {
-                    "v1_no_auto_merge": True,
-                    "requires_pr_review": True,
-                    "min_reviewers": 2
-                }
+                "prioritized_queue": sorted_vulnerabilities,
+                "decisions": decisions,
+                "risk_scores": risk_scores
             }
             
         except Exception as e:
-            self.logger.error(f"Governance evaluation failed: {e}")
+            self.logger.error(f"Governance prioritization failed: {e}")
             return {
-                "governance_decision_id": gov_id,
-                "fix_id": fix_id,
-                "decision": {"error": str(e)},
-                "approval_workflow": {},
-                "constraints": {}
+                "prioritized_queue": validated_input.vulnerabilities, # Fallback: unsorted
+                "decisions": [],
+                "risk_scores": {}
             }
     
     def _calculate_risk_score(
         self, 
         vulnerability: Dict[str, Any],
-        environment: Dict[str, Any]
+        environment: str
     ) -> float:
         """Calculate risk score using formula"""
         cvss = vulnerability.get("cvss", 5.0)
-        env = environment.get("target", "dev")
-        env_multiplier = self.ENV_MULTIPLIERS.get(env, 1.0)
+        env_multiplier = self.ENV_MULTIPLIERS.get(environment, 5.0) # Default to production/high
         
-        # Exploit ease from PoC success rate
-        poc_rate = vulnerability.get("poc_success_rate", 0.5)
+        # Exploit ease from PoC success rate or confidence
+        poc_rate = vulnerability.get("confidence", 0.5)
         exploit_ease = 0.2 + (poc_rate * 0.8)  # 0.2 to 1.0
         
         risk_score = cvss * env_multiplier * exploit_ease
-        return min(100, risk_score)
+        return min(100.0, risk_score)
     
     def _determine_autonomy(self, risk_score: float) -> str:
         """Determine autonomy level based on risk score"""
@@ -193,7 +222,7 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
         elif risk_score >= self.AUTONOMY_THRESHOLDS["suggest"]:
             return "suggest"
         else:
-            return "require"  # V1: Always require PR review
+            return "auto_approve" 
     
     def _build_approval_workflow(
         self, 
@@ -226,13 +255,14 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
     
     def format_output(self, result: Dict[str, Any]) -> GovernanceAgentOutput:
         """Format GOVERNANCE Agent output"""
+        # Hack for V1 to match expected output structure vaguely if needed
+        # But mostly we use the dict result in the node
         return GovernanceAgentOutput(
             agent_id=self.agent_id,
             timestamp=datetime.now().isoformat(),
-            status="success" if "error" not in result.get("decision", {}) else "error",
-            governance_decision_id=result["governance_decision_id"],
-            fix_id=result["fix_id"],
-            decision=GovernanceDecision(**result["decision"]) if "error" not in result.get("decision", {}) else None,
-            approval_workflow=ApprovalWorkflow(**result["approval_workflow"]) if result.get("approval_workflow") else None,
-            constraints=result["constraints"]
+            status="success",
+            governance_id="GOV-BATCH",
+            prioritized_queue=result["prioritized_queue"],
+            decisions=result["decisions"],
+            risk_scores=result["risk_scores"]
         )

@@ -2,6 +2,7 @@
 """Status endpoint for checking scan progress."""
 
 import logging
+from typing import List
 from fastapi import APIRouter, HTTPException
 
 from src.api.schemas import (
@@ -12,6 +13,7 @@ from src.api.schemas import (
     FixSummary,
     SeverityLevel,
     ErrorResponse,
+    LogEntry,  # Add this
 )
 from src.api.routes.scan import get_scan_data
 
@@ -99,3 +101,17 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
         pr_url=scan_data.get("pr_url"),
         report_url=None,  # Generated on-demand via /reports
     )
+
+
+@router.get(
+    "/{scan_id}/logs",
+    response_model=List[LogEntry],
+    summary="Get scan logs",
+)
+async def get_scan_logs(scan_id: str) -> List[LogEntry]:
+    """Get logs for a specific scan."""
+    scan_data = get_scan_data(scan_id)
+    if not scan_data:
+        raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
+        
+    return scan_data.get("logs", [])

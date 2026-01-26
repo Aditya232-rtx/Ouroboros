@@ -1,17 +1,22 @@
 # src/api/routes/reports.py
 """Reports endpoint for generating scan reports."""
 
+import os
+import json
 import logging
+import tempfile
 from datetime import datetime, timedelta
 from uuid import uuid4
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, BackgroundTasks
 
 from src.api.schemas import (
     ReportRequest,
     ReportResponse,
+    ReportExportResponse,
     ErrorResponse,
 )
 from src.api.routes.scan import get_scan_data
+from src.integrations.google_drive import drive_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -99,6 +104,48 @@ async def download_report(report_id: str):
         return HTMLResponse(content=report["content"])
     else:
         return JSONResponse(content=report["content"])
+
+
+@router.post(
+    "/{report_id}/export/drive",
+    response_model=ReportExportResponse,
+    summary="Export report to Google Drive",
+    description="Uploads the report to the configured Google Drive folder.",
+)
+async def export_report_to_drive(report_id: str):
+    """Export a generated report to Google Drive."""
+    if report_id not in _reports:
+        raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
+    
+    report = _reports[report_id]
+    
+    # Create valid temporary file
+    suffix = ".json" if report["format"] == "json" else ".html"
+    mime_type = "application/json" if report["format"] == "json" else "text/html"
+    
+    with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp:
+        if report["format"] == "json":
+            json.dump(report["content"], tmp, indent=2)
+        else:
+            tmp.write(report["content"])
+        tmp_path = tmp.name
+    
+    try:
+        # Upload to Drive
+        uploaded_file = drive_client.upload_file(tmp_path, mime_type=mime_type)
+        
+        if not uploaded_file:
+            raise HTTPException(status_code=500, detail="Failed to upload report to Google Drive")
+            
+        return ReportExportResponse(
+            report_id=report_id,
+            file_id=uploaded_file.get("id"),
+            web_view_link=uploaded_file.get("webViewLink")
+        )
+    finally:
+        # Cleanup temp file
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
 
 def _generate_json_report(result: dict, request: ReportRequest) -> dict:

@@ -97,6 +97,15 @@ class ScanDetailResponse(ScanStatusResponse):
     report_url: Optional[str] = None
 
 
+class LogEntry(BaseModel):
+    """Log entry for frontend terminal."""
+    id: str
+    timestamp: str
+    level: str  # info, warning, error, success
+    source: str
+    message: str
+
+
 # ============ Report Schemas ============
 
 class ReportRequest(BaseModel):
@@ -115,6 +124,14 @@ class ReportResponse(BaseModel):
     download_url: str
     generated_at: datetime
     expires_at: datetime
+
+
+class ReportExportResponse(BaseModel):
+    """Response for report export."""
+    report_id: str
+    file_id: str
+    web_view_link: Optional[str] = None
+    exported_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 # ============ Error Schemas ============
@@ -150,4 +167,53 @@ __all__ = [
     "ReportResponse",
     "ErrorResponse",
     "HealthResponse",
+    "UserCreate",
+    "UserLogin",
+    "UserResponse",
+    "TokenResponse",
+    "TokenData",
 ]
+
+
+# ============ Auth Schemas ============
+
+class UserCreate(BaseModel):
+    """Schema for user registration."""
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., min_length=8, description="User password")
+    full_name: Optional[str] = Field(None, description="User full name")
+
+
+class UserLogin(BaseModel):
+    """Schema for user login."""
+    email: str = Field(..., description="User email address")
+    password: str = Field(..., description="User password")
+
+
+class UserResponse(BaseModel):
+    """Schema for user response."""
+    id: int
+    user_id: str
+    email: str
+    full_name: Optional[str] = None
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class TokenResponse(BaseModel):
+    """Schema for token response."""
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class TokenData(BaseModel):
+    """Schema for token payload data."""
+    sub: Optional[str] = None
+    exp: Optional[int] = None
+    type: Optional[str] = None
+

@@ -95,6 +95,9 @@ FORMAT: Use headers, code blocks, tables, bullet points. Professional and concis
     
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Execute DOCUMENTATION Agent to create report"""
+        # Validate input
+        validated_input = self.validate_input(input_data)
+        
         doc_id = f"DOC-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
         self.logger.info(f"Creating documentation {doc_id}")
         
