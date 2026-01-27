@@ -319,35 +319,30 @@ class REDAgent(BaseAgent):
             executor = PentestExecutor(target=target)
             findings = []
             
-            # --- PHASE 0: IDENTIFICATION & SANDBOX ---
+            # --- PHASE 0: IDENTIFICATION ---
             is_repo = target.endswith(".git") or any(d in target for d in ["github.com", "gitlab.com", "bitbucket.org"])
-            is_github_link = any(h in target.lower() for h in ["github.com", "gitlab.com", "bitbucket.org"])
-            sandbox_path = None
-            
-            if is_repo:
-                self.logger.info("Target identified as repository (Source Code). Initiating Sandbox Clone...")
-                sandbox_path = await asyncio.to_thread(executor.setup_sandbox, target)
-                if not sandbox_path:
-                    self.logger.error("Failed to clone repository. SAST will be skipped.")
+            is_web_app = target.startswith("http") and not is_repo
 
-            # --- PHASE 1: TARGETED SCANNING ---
-            # 1. Code-based Tools (SAST)
-            if is_repo and sandbox_path:
-                self.logger.info(f"Running White-Box Semgrep Scan on {sandbox_path}...")
-                await asyncio.to_thread(executor.run_semgrep_scan, sandbox_path)
-            
-            # 2. Network-based Tools (DAST)
-            # Only run if NOT a cloud-hosted repo link, OR if profile is 'deep' and user understands the risk
-            if not is_github_link or scan_profile == 'deep':
+            # --- PHASE 1: REPOSITORY DYNAMIC ANALYSIS ---
+            if is_repo:
+                self.logger.info("Target identified as repository. Initiating Dynamic Analysis Workflow...")
+                # run_dynamic_analysis handles Clone -> Sandbox -> SAST -> DAST
+                result = await asyncio.to_thread(executor.run_dynamic_analysis, target)
+                if not result.get("success"):
+                     self.logger.error(f"Dynamic Analysis failed: {result.get('error')}")
+
+            # --- PHASE 2: URL/WEBAPP ANALYSIS ---
+            elif is_web_app:
+                self.logger.info(f"Target identified as live web application. Running DAST profile: {scan_profile}")
+                
+                # Active DAST (Nmap / Nuclei on target URL)
                 if scan_profile in ['active', 'deep', 'standard']:
-                    self.logger.info(f"Running Network Discovery (limited) on {target}...")
-                    await asyncio.to_thread(executor.run_nmap_scan, ports="1-1000")
+                     self.logger.info(f"Running Network Discovery on {target}...")
+                     await asyncio.to_thread(executor.run_nmap_scan, ports="1-1000")
                 
                 if scan_profile in ['standard', 'deep']:
-                    self.logger.info(f"Running Vulnerability Scan (Nuclei) on {target}...")
-                    await asyncio.to_thread(executor.run_nuclei_scan)
-            else:
-                 self.logger.info(f"Skipping network-level scans for cloud host {target} to avoid artifacts on hosting provider.")
+                     self.logger.info(f"Running Vulnerability Scan (Nuclei) on {target}...")
+                     await asyncio.to_thread(executor.run_nuclei_scan)
 
             # --- PHASE 2: BROWSER ANALYSIS ---
             # Only for live web apps

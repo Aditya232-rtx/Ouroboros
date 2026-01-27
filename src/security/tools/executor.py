@@ -17,6 +17,8 @@ from datetime import datetime
 from dataclasses import asdict
 
 from src.security.models import Vulnerability, ScanResult
+from src.security.tools.runner import SandboxRunner
+
 # Assuming 'context_builder' is not directly imported here but data is passed in
 
 logger = logging.getLogger(__name__)
@@ -43,7 +45,8 @@ class PentestExecutor:
         Returns absolute path to sandbox.
         """
         sandbox_base = "/tmp/ouroboros_sandbox"
-        scan_id = self.scan_result.scan_started.replace(":", "-") # Safe filename
+        # Use simple ID if scan result doesn't help make it unique enough
+        scan_id = self.scan_result.scan_started.replace(":", "-").replace(".", "-")
         sandbox_path = os.path.join(sandbox_base, scan_id)
         
         if os.path.exists(sandbox_path):
@@ -63,6 +66,60 @@ class PentestExecutor:
         except Exception as e:
             logger.error(f"Sandbox setup failed: {e}")
             return ""
+
+    def run_dynamic_analysis(self, repo_url: str) -> Dict:
+        """
+        Orchestrates a comprehensive Dynamic Application Security Testing (DAST) workflow.
+        1. Clones the repository.
+        2. Starts the application in a sandbox.
+        3. Runs DAST tools (Nmap, Nuclei) against the running instance.
+        4. (Optional) SAST scan on the source code.
+        5. Teardowns the sandbox.
+        """
+        self.logger = logger # Ensure logger is available
+        logger.info(f"Starting Dynamic Analysis for {repo_url}")
+        
+        # 1. Clone
+        sandbox_path = self.setup_sandbox(repo_url)
+        if not sandbox_path:
+            return {"success": False, "error": "Failed to clone repository"}
+
+        runner = SandboxRunner(sandbox_path)
+        success, app_url = runner.start()
+        
+        if not success:
+            logger.error(f"Failed to start sandbox app: {app_url}")
+            # Even if it failed to start, we can still do SAST
+            self.run_static_analysis(sandbox_path)
+            return {"success": False, "error": f"Failed to start app: {app_url}"}
+
+        logger.info(f"Sandbox application running at {app_url}")
+        
+        # Update target to local instance for DAST
+        original_target = self.target
+        self.target = app_url
+        
+        try:
+            # 2. Run DAST tools
+            self.run_full_scan() # Nmap, Nuclei
+            
+            # 3. Run SAST tools (on the source code)
+            self.run_static_analysis(sandbox_path)
+            
+        finally:
+            logger.info("Stopping sandbox...")
+            runner.stop()
+            self.target = original_target # Restore original target
+            
+        return {"success": True, "scan_result": self.scan_result}
+
+    def run_static_analysis(self, target_path: str):
+        """Run all SAST/SCA/Secret tools"""
+        logger.info("Running Static Analysis...")
+        self.run_semgrep_scan(target_path)
+        self.run_gitleaks_scan(target_path)
+        self.run_trivy_scan(target_path)
+        self.run_checkov_scan(target_path)
 
     def run_semgrep_scan(self, target_path: str) -> Dict:
         """Run Semgrep SAST scan on sandbox"""
@@ -107,6 +164,114 @@ class PentestExecutor:
                 self.scan_result.vulnerabilities.append(vuln)
         except json.JSONDecodeError:
             logger.error("Failed to parse Semgrep JSON")
+
+    def run_gitleaks_scan(self, target_path: str) -> Dict:
+        """Run Gitleaks scan for secrets"""
+        if not shutil.which("gitleaks"):
+             logger.warning("Gitleaks not installed.")
+             return {}
+             
+        cmd = ["gitleaks", "detect", "--source", target_path, "--report-format", "json", "--report-path", "/dev/stdout", "--no-git"]
+        result = self._run_command(cmd)
+        
+        if result["success"] and result["stdout"]:
+             try:
+                 findings = json.loads(result["stdout"])
+                 for finding in findings:
+                     vuln = Vulnerability(
+                         title=f"Secret: {finding.get('Description', 'Potential Secret')}",
+                         severity="High",
+                         cvss_score=7.5,
+                         description=f"Found potential secret in {finding.get('File')}",
+                         affected_endpoint=f"{finding.get('File')}:{finding.get('StartLine')}",
+                         impact="Credentials exposure could lead to unauthorized access",
+                         poc_response=f"Match: {finding.get('Match')}",
+                         remediation="Rotate secret and remove from history",
+                         tool_output=json.dumps(finding, indent=2)
+                     )
+                     self.scan_result.vulnerabilities.append(vuln)
+             except json.JSONDecodeError:
+                 pass
+        return result
+
+    def run_trivy_scan(self, target_path: str) -> Dict:
+        """Run Trivy scan for dependencies (fs mode)"""
+        if not shutil.which("trivy"):
+             logger.warning("Trivy not installed.")
+             return {}
+        
+        # Scans filesystem for vulnerabilities in deps
+        cmd = ["trivy", "fs", target_path, "--format", "json", "--scanners", "vuln,config", "--quiet"]
+        result = self._run_command(cmd)
+        
+        if result["success"] and result["stdout"]:
+             try:
+                 data = json.loads(result["stdout"])
+                 for res in data.get("Results", []):
+                     target = res.get("Target", "Unknown")
+                     for finding in res.get("Vulnerabilities", []):
+                         vuln = Vulnerability(
+                             title=f"Dependency: {finding.get('PkgName')} {finding.get('VulnerabilityID')}",
+                             severity=finding.get("Severity", "Medium").capitalize(),
+                             cvss_score=0.0,
+                             description=finding.get("Description", ""),
+                             affected_endpoint=f"{target} ({finding.get('PkgName')})",
+                             impact="Vulnerable dependency component",
+                             remediation=f"Upgrade to {finding.get('FixedVersion', 'latest')}",
+                             references=finding.get("References", []),
+                             tool_output=json.dumps(finding, indent=2)
+                         )
+                         self.scan_result.vulnerabilities.append(vuln)
+                     
+                     for finding in res.get("Misconfigurations", []):
+                          vuln = Vulnerability(
+                             title=f"Config: {finding.get('Title')}",
+                             severity=finding.get("Severity", "Medium").capitalize(),
+                             cvss_score=0.0,
+                             description=finding.get("Description", ""),
+                             affected_endpoint=f"{target}",
+                             impact="Misconfiguration vulnerability",
+                             remediation=finding.get("Resolution", ""),
+                             tool_output=json.dumps(finding, indent=2)
+                         )
+                          self.scan_result.vulnerabilities.append(vuln)
+             except json.JSONDecodeError:
+                 pass
+        return result
+
+    def run_checkov_scan(self, target_path: str) -> Dict:
+        """Run Checkov scan for IaC"""
+        # Checkov is python pkg, might be runnable via python -m checkov or checkov bin
+        cmd = ["checkov", "-d", target_path, "--output", "json", "--quiet"]
+        
+        # Might take longer
+        result = self._run_command(cmd, timeout=300)
+        
+        if result["success"] and result["stdout"]:
+             try:
+                 # Checkov output structure varies if multiple checks
+                 # Sometimes it returns a list of reports or a single obj
+                 data = json.loads(result["stdout"])
+                 
+                 reports = data if isinstance(data, list) else [data]
+                 
+                 for report in reports:
+                     check_type = report.get("check_type", "IaC")
+                     for check in report.get("results", {}).get("failed_checks", []):
+                         vuln = Vulnerability(
+                             title=f"IaC ({check_type}): {check.get('check_id')} - {check.get('check_name')}",
+                             severity="Medium", # Checkov doesn't always map standardized severity well
+                             cvss_score=0.0,
+                             description=check.get("check_name", ""),
+                             affected_endpoint=check.get("file_path", ""),
+                             impact="Infrastructure as Code misconfiguration",
+                             remediation=check.get("guideline", ""),
+                             tool_output=json.dumps(check, indent=2)
+                         )
+                         self.scan_result.vulnerabilities.append(vuln)
+             except json.JSONDecodeError:
+                 pass
+        return result
 
     def _load_from_recon_context(self):
         """Loads data from the consolidated recon context."""
@@ -174,10 +339,11 @@ class PentestExecutor:
             "timestamp": datetime.now().isoformat()
         }
 
+        # If it's python module (checkov), shutil.which might find it in path if activated
+        # Otherwise for subprocess calls to system binaries
         if not shutil.which(cmd[0]):
-            result["stderr"] = f"Tool '{cmd[0]}' not found."
-            logger.warning(f"Tool not found: {cmd[0]}")
-            return result
+             # Fallback check - maybe it's in a standard path not in env?
+             pass
 
         try:
             logger.info(f"Executing: {' '.join(cmd)}")
