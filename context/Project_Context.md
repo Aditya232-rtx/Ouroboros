@@ -489,118 +489,58 @@ PyRIT (Red Team Automation)
 * Why: Orchestrates Nuclei, Semgrep, CodeQL; generates POCs; LLM-based attack planning
 * Installation: pip install pyrit
 
-TIER 2: LOCAL LLM MODELS (QUANTIZED)
+TIER 2: LOCAL LLM MODELS (RUNNING VIA OLLAMA)
 
-RED AGENT Model: WhiteRabbitNeo-7B Q4_K_M ✅ (KEEP - No change)
+RED AGENT Model: Qwen 2.5 Coder 7B ✅ (IMPLEMENTED)
+• Model ID: qwen2.5-coder:7b
+• Why: Superior code understanding and vulnerability detection compared to WhiteRabbitNeo 7B.
+• Usage: Active LLM SAST (direct source code review) and finding analysis.
+• Memory: ~4.5GB VRAM
+• Inference Speed: ~40 tokens/sec (Metal/MPS)
 
-BLUE AGENT Model: DeepSeek-R1-Distill 7B Q4_K_M ⚠️ (UPDATE NEEDED)
-• Model Card: https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
-• GGUF Quantized: https://huggingface.co/bartowski/DeepSeek-R1-Distill-Qwen-7B-GGUF
-• Why: Superior reasoning for fix generation, chain-of-thought built-in
-• Quantization: Q4_K_M
-• Memory: ~4.8GB VRAM
-• Inference Speed: ~25 tokens/second
-• Accuracy Retention: 95-97% of FP16 baseline
-• Best For: Multi-step fix reasoning, complex vulnerability remediation, test generation
+BLUE AGENT Model: Qwen 2.5 Coder 7B ⚠️ (PLANNED)
+• Model ID: qwen2.5-coder:7b (or DeepSeek-R1-Distill)
+• Why: Consistency in code generation and patching capabilities.
 
-GOVERNANCE AGENT Model: Phi-3.5-mini 3.8B Q6_K ⚠️ (UPDATE NEEDED)
-• Model Card: https://huggingface.co/microsoft/Phi-3.5-mini-instruct
-• GGUF Quantized: https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF
-• Why: Microsoft-tuned for instruction following, excellent for policy evaluation
-• Quantization: Q6_K (6-bit for higher accuracy)
-• Memory: ~3.2GB VRAM
-• Inference Speed: ~50 tokens/second
-• Accuracy Retention: 98%+
-• Best For: Policy evaluation, risk scoring, decision logic
+GOVERNANCE/DOCS/AUDIT AGENT Model: Phi-3.5 Mini 3.8B ✅ (IMPLEMENTED)
+• Model ID: phi3:latest (ollama)
+• Why: Fast, deterministic instruction following for policy, reporting, and logs.
+• Memory: ~2.5GB VRAM
 
-DOCUMENTATION AGENT Model: Phi-3.5-mini 3.8B Q6_K ⚠️ (SAME AS GOVERNANCE)
-• Model Card: https://huggingface.co/microsoft/Phi-3.5-mini-instruct
-• GGUF Quantized: https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF
-• Why: Fast, accurate technical writing, excellent structured output
-• Quantization: Q6_K
-• Memory: ~3.2GB VRAM
-• Inference Speed: ~50 tokens/second
-• Best For: Google Docs generation, report formatting, compliance mapping
+TIER 3: VULNERABILITY DISCOVERY TOOLS (IMPLEMENTED)
+Nuclei (DAST)
+* Status: Active via PyRIT
+* Usage: Web vulnerability scanning against sandbox
+* Templates: 6,000+ community templates
+Semgrep (SAST)
+* Status: Active via PyRIT
+* Usage: Static code analysis for insecure patterns
+* Rules: OWASP Top 10, CWE-based rulesets
+Nmap (Network Recon)
+* Status: Active via PyRIT
+* Usage: Port scanning and service discovery on sandbox
+Trivy (Dependency/Config)
+* Status: Active via PyRIT
+* Usage: Dependency vulnerability scanning (lockfiles) and Dockerfile security
+Checkov (IaC)
+* Status: Active via PyRIT
+* Usage: Infrastructure-as-Code scanning (Terraform, Dockerfile, Kubernetes)
 
-AUDIT AGENT Model: Phi-3.5-mini 3.8B Q6_K ⚠️ (SAME AS GOVERNANCE/DOC)
-• Model Card: https://huggingface.co/microsoft/Phi-3.5-mini-instruct
-• GGUF Quantized: https://huggingface.co/bartowski/Phi-3.5-mini-instruct-GGUF
-• Why: Deterministic, fast, excellent for structured logging
-• Quantization: Q6_K
-• Memory: ~3.2GB VRAM
-• Inference Speed: ~50 tokens/second
-• Best For: Event logging, compliance mapping, audit trail generation
+TIER 4: INTEGRATIONS & MCP (IMPLEMENTED)
+MCP Manager (Model Context Protocol)
+* Location: src/integrations/mcp_manager.py
+* Function: Orchestrates connections to external data sources via MCP.
+* Active Servers:
+    - Google Drive (Node.js/npx): For report export (Blocked by IAM currently)
+    - Filesystem (Native): For local artifact management
+* Architecture: Python MCP Client -> STDIO -> Node.js MCP Server
 
-SEQUENTIAL (one at a time): 4.8GB max (BLUE is largest)
-PARALLEL (all running): 
-  RED (4.5GB) + BLUE (4.8GB) + 3x Phi-3.5 (3.2GB each) = 4.5 + 4.8 + 9.6 = 18.9GB total
-
-RECOMMENDED HARDWARE:
-- Dev/Testing: 24GB RAM, M4 Pro or RTX 4060 Ti (16GB VRAM)
-- Production: 32GB RAM, NVIDIA RTX 4090 (24GB VRAM) or A6000 (48GB VRAM)
-
-TIER 3: VULNERABILITY DISCOVERY TOOLS
-Nuclei (Template-based Scanning)
-* Website: https://projectdiscovery.io/nuclei
-* GitHub: https://github.com/projectdiscovery/nuclei
-* Docs: https://docs.nuclei.sh/
-* Templates: https://templates.nuclei.sh/
-* Version: 3.0+
-* Why: 6,000+ community templates, fast, scriptable, low false positives
-* Installation: nuclei -update-templates
-Semgrep (SAST Engine)
-* Website: https://semgrep.dev/
-* GitHub: https://github.com/returntocorp/semgrep
-* Docs: https://semgrep.dev/docs/
-* Version: 1.45+
-* Why: Code flow analysis, OWASP Top 10 rules, 30+ languages
-* Installation: pip install semgrep
-Checkov (Infrastructure-as-Code)
-* Website: https://www.checkov.io/
-* GitHub: https://github.com/bridgecrewio/checkov
-* Docs: https://www.checkov.io/
-* Version: 3.0+
-* Why: Terraform, CloudFormation, Kubernetes scanning
-* Installation: pip install checkov
-CodeQL (Advanced Dataflow)
-* Website: https://codeql.github.com/
-* GitHub: https://github.com/github/codeql
-* Docs: https://codeql.github.com/docs/
-* Version: 2.10+
-* Why: Semantic code analysis, zero-day detection, enterprise queries
-* Installation: Available via GitHub CLI
-
-TIER 4: GOOGLE WORKSPACE INTEGRATION (NEW)
-Google Workspace MCP Server
-* GitHub: https://github.com/modelcontextprotocol/servers/tree/main/src/gdrive
-* Docs: https://modelcontextprotocol.io/
-* Why: Create/update Google Docs automatically, real-time collaboration
-* Installation: npm install @modelcontextprotocol/server-gdrive
-Google Docs API
-* Docs: https://developers.google.com/docs/api
-* Why: Direct document manipulation, formatting, commenting
-* Authentication: OAuth 2.0 with service account
-Key Features Used:
-* Create new documents programmatically
-* Update documents in real-time (as scan progresses)
-* Format text (headers, code blocks, tables)
-* Add comments and suggestions
-* Share with specific users/teams
-* Version history tracking
-
-TIER 5: FIX GENERATION & VALIDATION
-Fix Generation Framework
-* LangChain Tools: https://python.langchain.com/docs/modules/tools/
-* Tool Creation: Custom Python functions wrapped as LangChain tools
-* Fix Templates: GitHub/GitLab templates for standard fix patterns
-Testing & Validation
-* pytest: https://docs.pytest.org/ (pip install pytest)
-* Jest: https://jestjs.io/ (for JavaScript fixes)
-* Docker Compose: https://docs.docker.com/compose/ (digital twins)
-Infrastructure-as-Code Fix Generation
-* Terraform: https://www.terraform.io/ (IaC fix proposals)
-* Kubernetes: https://kubernetes.io/ (manifest updates)
-* CloudFormation: https://aws.amazon.com/cloudformation/
+TIER 5: INFRASTRUCTURE (IMPLEMENTED)
+Docker Sandbox
+* Strategy: "Clone -> Auto-Dockerize -> Scan"
+* Location: src/security/tools/docker_sandbox.py
+* Function: Automatically detects project type (Node.js, Python), builds Dockerfile, and runs container for safe DAST scanning.
+* Persistence: Ephemeral (spun down after scan).
 
 TIER 6: GOVERNANCE & POLICY
 OPA (Open Policy Agent)
