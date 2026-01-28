@@ -1,142 +1,163 @@
-# Ouroboros AI Quick Start Guide
+# Ouroboros AI - Quick Start Guide
 
-## Prerequisites
-- Docker and Docker Compose
-- Ollama (for local model inference)
-- 8GB+ RAM
-- Git
+This guide will take you from a fresh machine to a fully running Ouroboros AI system, including the Red Agent, Blue Agent, Dashboard, and MCP integrations.
 
-## Setup (5 minutes)
+## 📋 Prerequisites
 
-### 1. Clone and Navigate
+Ensure you have the following installed before starting:
+
+1.  **Python 3.11+**: [Download](https://www.python.org/downloads/)
+2.  **Node.js 20+** (LTS): [Download](https://nodejs.org/)
+3.  **Docker & Docker Compose**: [Download Docker Desktop](https://www.docker.com/products/docker-desktop/)
+4.  **Ollama**: [Download](https://ollama.com/) (Required for local AI models)
+5.  **Git**: [Download](https://git-scm.com/)
+6.  **(Optional) Security Tools**: `nmap`, `nuclei`, `trivy` (if running local verification scripts outside Docker)
+
+---
+
+## 🚀 Step 1: AI Model Setup (Ollama)
+
+Ouroboros relies on local LLMs for privacy and cost-efficiency. Pull the required models:
+
 ```bash
-git clone https://github.com/your-org/ouroboros.git
-cd ouroboros
+# 1. Start Ollama
+ollama serve
+
+# 2. Pull the models (in a separate terminal)
+# Red Agent (Coding & Offensive Security)
+ollama pull qwen2.5-coder:32b  # or 7b for lower VRAM
+
+# Blue Agent (Reasoning, Fix Generation)
+ollama pull deepseek-r1:14b    # or 7b
+
+# Support Agents (Documentation, Governance - fast/light)
+ollama pull phi3.5
 ```
 
-### 2. Configure Environment
+---
+
+## 🛠️ Step 2: Backend Setup
+
+### 1. Clone the Repository
 ```bash
-# Copy environment template
+git clone https://github.com/Aditya232-rtx/Ouroboros.git
+cd Ouroboros
+```
+
+### 2. Configure Environment Variables
+Copy the example environment file and update it with your secrets.
+
+```bash
 cp .env.example .env
-
-# Edit .env with your credentials
-nano .env  # or use your preferred editor
+nano .env  # Or use your code editor
 ```
 
-Required values:
-- `GITHUB_TOKEN`: Your GitHub personal access token
-- `GOOGLE_SERVICE_ACCOUNT_FILE`: Path to Google service account JSON
+**Critical Variables to Set:**
+*   `GITHUB_TOKEN`: Your GitHub PAT (Classic) with `repo` scope.
+*   `OLLAMA_BASE_URL`: Usually `http://localhost:11434/v1`.
+*   `POSTGRES_PASSWORD`, `REDIS_PASSWORD`: Change these if deploying publicly.
 
-### 3. Load Ollama Models
+### 3. Python Virtual Environment
 ```bash
-# If you haven't imported the models yet
-cd models
-ollama create ouroboros-red -f Modelfile.qwen
-ollama create ouroboros-blue -f Modelfile.deepseek
-ollama create ouroboros-support -f Modelfile.phi3.new
-cd ..
-
-# Verify models
-ollama list
+python3.11 -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+pip install -r requirements.txt
 ```
 
-### 4. Start Services
-```bash
-# Run setup script
-./scripts/setup.sh
+---
 
-# Or manually:
+## 🐳 Step 3: Infrastructure (Docker)
+
+Start the supporting services (PostgreSQL, Redis, Immudb, OPA).
+
+```bash
 docker-compose up -d
 ```
+*Wait ~10 seconds for databases to initialize.*
 
-### 5. Initialize Database
+### Initialize Database
+Push the schema to the running PostgreSQL instance.
 ```bash
+# Ensure venv is active
 python scripts/init_db.py
 ```
 
-### 6. Start API (Local Development)
+---
+
+## 🔌 Step 4: MCP Server Setup
+
+The system uses [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) servers for filesystem, GitHub, and Google Drive access. These are Node.js applications.
+
 ```bash
-# Activate venv
+# Install specific MCP servers locally
+npm install @modelcontextprotocol/server-filesystem @modelcontextprotocol/server-github @modelcontextprotocol/server-gdrive @modelcontextprotocol/server-slack
+```
+
+---
+
+## 💻 Step 5: Frontend Dashboard Setup
+
+The "War Room" dashboard allows you to visualize scans and agent activities.
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+The frontend will start at **http://localhost:3000**.
+
+---
+
+## ✅ Step 6: Verify Installation
+
+We have a built-in verification script that:
+1.  Checks for required tools (Nmap, Nuclei, etc.).
+2.  Tests MCP connections.
+3.  Runs a full "Red Agent" scan against a test repository.
+
+```bash
+# Open a new terminal from project root
 source venv/bin/activate
+export PYTHONPATH=$PYTHONPATH:.
 
-# Install dependencies
-pip install -r requirements.txt
-
-# Run API
-uvicorn src.api.main:app --reload
+# Run the full verification suite
+python scripts/verify_red_agent_full.py
 ```
 
-## Usage
+**Expected Output:**
+*   ✅ Connection to MCP servers verified.
+*   ✅ Vulnerable app cloned to sandbox (automatic Dockerfile generation).
+*   ✅ Vulnerabilities detected (High/Critical) via Semgrep/Trivy/Nuclei.
 
-### Web Interface
-Open http://localhost:8000/docs for interactive API documentation.
+---
 
-### API Example
-```bash
-# Start a scan
-curl -X POST http://localhost:8000/api/scan \
-  -H "Content-Type: application/json" \
-  -d '{
-    "repo_url": "https://github.com/user/repo",
-    "branch": "main",
-    "scan_profile": "standard"
-  }'
+## 🏃 Usage
 
-# Check status
-curl http://localhost:8000/api/scan/SCAN-xxx
-```
+### Option A: Web Dashboard
+1.  Open **http://localhost:3000/dashboard**.
+2.  Navigate to **Red Agent**.
+3.  Enter a target GitHub URL (e.g., `https://github.com/Aditya232-rtx/vul`) and click **Start Scan**.
 
-### Expected Workflow
-1. Submit GitHub repository URL
-2. RED agent scans for vulnerabilities (~60s)
-3. GOVERNANCE prioritizes findings (~5s)
-4. BLUE agent generates fixes (~30s per vuln)
-5. RED verifies each fix (~20s)
-6. Loop until all verified
-7. Create GitHub PR with fixes
-8. Generate compliance report
+### Option B: API (Swagger UI)
+1.  Start the Backend API:
+    ```bash
+    uvicorn src.api.main:app --reload --port 8000
+    ```
+2.  Open **http://localhost:8000/docs**.
+3.  Use the `POST /api/scan` endpoint to trigger a scan manually.
 
-## Services
+---
 
-| Service | Port | Purpose |
-|---------|------|---------|
-| API | 8000 | FastAPI REST interface |
-| Postgres | 5432 | State persistence |
-| Redis | 6379 | Caching |
-| immudb | 3322 | Audit logging |
-| OPA | 8181 | Policy evaluation |
-| Ollama | 11434 | Model inference |
+## 📂 Directory Structure Key
 
-## Troubleshooting
+*   `src/agents/`: Logic for Red, Blue, and Governance agents.
+*   `src/security/tools/`: Wrappers for Nmap, Nuclei, Semgrep, etc.
+*   `frontend/`: Next.js 14 Dashboard code.
+*   `scripts/`: Utilities for databases, verifying tools, and testing.
+*   `outputs/`: Scan reports (HTML/JSON) and logs are saved here.
 
-### Models not loading
-```bash
-# Check Ollama service
-ollama list
+## 🆘 Troubleshooting
 
-# Restart Ollama
-ollama serve
-```
-
-### Database connection failed
-```bash
-# Check PostgreSQL
-docker-compose logs postgres
-
-# Restart services
-docker-compose restart postgres
-```
-
-### OPA policies not found
-```bash
-# Verify policies directory
-ls -la config/opa_policies/
-
-# Check OPA logs
-docker-compose logs opa
-```
-
-## Next Steps
-- Review `/docs` for complete documentation
-- See `context/` for architecture details
-- Check `tests/` for examples
+*   **"Docker not found" in Red Agent**: Ensure Docker Desktop is running and you verified it with `docker ps`.
+*   **"Connection refused" to Ollama**: Make sure `ollama serve` is running in a separate terminal.
+*   **"Missing Dependencies"**: Re-run `pip install -r requirements.txt` and `npm install` in the root.
