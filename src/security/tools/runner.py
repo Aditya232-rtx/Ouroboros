@@ -68,11 +68,51 @@ class SandboxRunner:
             if (self.sandbox_path / "Dockerfile").exists():
                 return self._start_dockerfile()
 
+            # Attempt to auto-generate Dockerfile
+            if self._generate_dockerfile():
+                return self._start_dockerfile()
+
             return False, "No Docker configuration found (Dockerfile or docker-compose.yml)"
 
         except Exception as e:
             logger.error(f"Failed to start sandbox: {e}")
             return False, str(e)
+
+    def _generate_dockerfile(self) -> bool:
+        """Generates a default Dockerfile based on project type."""
+        try:
+            if (self.sandbox_path / "package.json").exists():
+                logger.info("Detected Node.js project. Generating Dockerfile...")
+                dockerfile_content = """
+FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 3000
+CMD ["npm", "start"]
+"""
+                (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+                return True
+
+            elif (self.sandbox_path / "requirements.txt").exists():
+                logger.info("Detected Python project. Generating Dockerfile...")
+                dockerfile_content = """
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["python", "app.py"]
+"""
+                (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+                return True
+                
+            return False
+        except Exception as e:
+            logger.error(f"Failed to generate Dockerfile: {e}")
+            return False
 
     def _start_compose(self, compose_file: Path) -> Tuple[bool, str]:
         """Start using docker-compose."""
