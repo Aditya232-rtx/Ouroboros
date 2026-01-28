@@ -40,11 +40,13 @@ class RedAgentVulnerability(BaseModel):
     """Individual vulnerability found by RED Agent (Pydantic version for LLM)"""
     model_config = ConfigDict(extra='ignore')
     id: str = Field(default_factory=lambda: f"RED-{datetime.now().strftime('%Y%m%d%H%M%S')}")
+    title: str = ""
     type: str = "unknown"
     severity: str = "info"  # critical|high|medium|low|info
     cwe: str = ""
     cvss: float = 0.0
     location: VulnerabilityLocation = Field(default_factory=VulnerabilityLocation)
+    affected_endpoint: str = ""  # Fallback for tool findings
     description: str = ""
     attack_vector: str = "network" # network|local|adjacent|physical
     poc_code: str = ""
@@ -153,7 +155,15 @@ class REDAgent(BaseAgent):
             self.context_builder.set_target(validated_input.repo_url)
             
             # Run the tools
-            tool_findings = await self._run_security_tools(validated_input.model_dump())
+            tool_findings, sandbox_path = await self._run_security_tools(validated_input.model_dump())
+
+            # Step 1.5: Run Active LLM SAST Scan (Code Review)
+            # Only if we have a sandbox (repository)
+            llm_sast_findings = []
+            if sandbox_path:
+                 self.logger.info(f"Running Active LLM SAST Scan on sandbox: {sandbox_path}")
+                 llm_sast_findings = await self._run_llm_sast_scan(sandbox_path, validated_input.repo_url)
+                 tool_findings.extend(llm_sast_findings)
             
             # Persist findings to context
             self.context_builder.add_vulnerabilities(tool_findings)
@@ -168,13 +178,43 @@ class REDAgent(BaseAgent):
                 persona = self.prompts.get("exploit_expert", self.system_prompt)
             else:
                 persona = self.prompts.get("red_team_agent", self.system_prompt)
-                
-            vulnerabilities = await self._analyze_with_llm(
-                tool_findings, 
+            
+            # CRITICAL FIX: Don't re-analyze LLM SAST findings (they are already from LLM).
+            # Analyze only the tool findings to get reasoning for them.
+            # Then merge the LLM SAST findings back in.
+            
+            # Filter out LLM SAST findings for the deduplication/analysis step
+            raw_tool_findings = [f for f in tool_findings if "llm_sast" not in f.get('tools_detected_by', [])]
+            
+            analyzed_vulnerabilities = await self._analyze_with_llm(
+                raw_tool_findings, 
                 validated_input.model_dump(), 
                 context_summary=context_str,
                 persona=persona
             )
+            
+            # Convert LLM SAST findings (dicts) to RedAgentVulnerability objects
+            sast_vulnerabilities = []
+            for f in llm_sast_findings:
+                try:
+                    # Ensure ID
+                    if "id" not in f:
+                        f["id"] = f"RED-SAST-{datetime.now().strftime('%H%M%S')}-{len(sast_vulnerabilities)}"
+                    
+                    # Ensure Location Object (it might be a dict from the scan)
+                    if isinstance(f.get("location"), dict):
+                        # Pydantic expects object, but we are passing dict to constructor, which is fine
+                        pass
+                    
+                    vuln = RedAgentVulnerability(**f)
+                    # Force high confidence for direct code review
+                    vuln.confidence = 0.95 
+                    sast_vulnerabilities.append(vuln)
+                except Exception as e:
+                    self.logger.warning(f"Failed to convert SAST finding to object: {e}")
+
+            # Merge lists
+            vulnerabilities = analyzed_vulnerabilities + sast_vulnerabilities
             
             # Step 2.5: Verify Exploits (The "Specialist" Step)
             # If we have high confidence vulns, try to actually exploit them to prove it
@@ -186,6 +226,10 @@ class REDAgent(BaseAgent):
                 # Proactively set confidence if LLM didn't (ensure they aren't all filtered out)
                 if vuln.confidence == 0.0:
                     vuln.confidence = 0.5 # Default to moderate if found by LLM
+                
+                # Trust LLM SAST findings more (they are direct code review)
+                if "llm_sast" in vuln.tools_detected_by:
+                    vuln.confidence = max(vuln.confidence, 0.85)
 
                 if vuln.confidence > 0.7:
                     self.logger.info(f"Attempting to verify {vuln.type} on {vuln.location.file}...")
@@ -260,6 +304,7 @@ class REDAgent(BaseAgent):
                 # Run Audit/Scan using PentestExecutor (The Muscle)
                 # Note: If Proxy is active, we could route traffic, but PentestExecutor wraps binaries.
                 # We can check if Proxy is alive to note it in the report.
+                from src.security.tools.proxy import ProxyManager
                 proxy = ProxyManager()
                 if proxy.available:
                     self.logger.info(f"[Architect] Proxy is active. Traffic will be captured in Caido.")
@@ -270,12 +315,12 @@ class REDAgent(BaseAgent):
                     "scan_started": scan_id,
                     "scan_completed": datetime.now().isoformat(),
                     "tools_executed": [{"tool": "red_agent_v2", "success": True}],
-                    "open_ports": self.context_builder.open_ports,
                     "vulnerabilities": [v.model_dump() for v in high_confidence_vulns],
                     "summary": statistics,
                     "privesc_info": privesc_results,
                     "persistence_info": persistence_results,
-                    "lateral_movement_info": lateral_results
+                    "lateral_movement_info": lateral_results,
+                    "context": self.context_builder.build() # Full Recon Context
                 }
                 reporter = ReportGenerator(scan_result_dict, llm_analysis="Generated by Qwen2.5-Coder")
                 report_path = reporter.save_report(output_dir="outputs/red_agent/reports")
@@ -300,6 +345,101 @@ class REDAgent(BaseAgent):
                 "statistics": {"error": str(e)},
                 "scan_complete": False
             }
+
+    async def _run_llm_sast_scan(self, sandbox_path: str, repo_url: str) -> List[Dict]:
+        """
+        [Active LLM SAST]
+        Walks the sandbox, identifies high-risk files, and asks the LLM to review them directly.
+        """
+        findings = []
+        path_obj = Path(sandbox_path)
+        
+        # 1. Identify high-risk files
+        # Limit to reasonable number/size to avoid OOM
+        extensions = {'.py', '.js', '.ts', '.php', '.go', '.java', '.rb', '.sh', 'Dockerfile', '.yml', '.yaml'}
+        target_files = []
+        
+        for p in path_obj.rglob('*'):
+            if p.is_file() and p.suffix in extensions and not any(part.startswith('.') for part in p.parts):
+                 # Skip tests, node_modules, etc.
+                 if 'node_modules' in str(p) or 'venv' in str(p) or 'scan_results' in str(p):
+                     continue
+                 target_files.append(p)
+
+        # 2. Analyze each file (limit to top 10 most interesting for prototype)
+        # Prioritize files with 'auth', 'login', 'config', 'db', 'api' in name
+        def priority(f):
+             name = f.name.lower()
+             if any(k in name for k in ['auth', 'login', 'security', 'db', 'database', 'config', 'api', 'server', 'app']):
+                 return 2
+             return 1
+             
+        target_files.sort(key=priority, reverse=True)
+        files_to_scan = target_files[:10] 
+        
+        self.logger.info(f"Selected {len(files_to_scan)} files for active LLM Code Review: {[f.name for f in files_to_scan]}")
+        
+        for file_path in files_to_scan:
+            try:
+                content = file_path.read_text(errors='ignore')
+                if not content or len(content) > 8000: # Skip empty or too large files
+                    continue
+                    
+                rel_path = file_path.relative_to(path_obj)
+                self.logger.info(f"Reviewing {rel_path} with LLM...")
+
+                prompt = f"""
+You are an expert Security Researcher performing a Manual Code Review.
+Analyze the following source code from {rel_path} for security vulnerabilities.
+Look for:
+- Logical flaws (Auth bypass, IDOR)
+- Injection attacks (SQLi, XSS, Command Injection)
+- Hardcoded secrets
+- Misconfigurations
+
+SOURCE CODE ({rel_path}):
+```
+{content}
+```
+
+Respond with a JSON object containing a list of 'vulnerabilities'.
+Format:
+{{
+  "vulnerabilities": [
+    {{
+      "type": "sql_injection",
+      "severity": "high",
+      "location": {{"file": "{str(rel_path)}", "line": 0}},
+      "description": "Explanation of the flaw...",
+      "confidence": 0.9
+    }}
+  ]
+}}
+If no vulnerabilities are found, return {{"vulnerabilities": []}}.
+"""
+                response = self._call_llm(prompt)
+                
+                # Parse using robust BaseAgent parser
+                try:
+                    data = self._parse_json_response(response)
+                    if isinstance(data, list): data = {"vulnerabilities": data}
+                     
+                    for v in data.get("vulnerabilities", []):
+                        # Standardize
+                        v['tools_detected_by'] = ['llm_sast']
+                        if 'location' not in v: v['location'] = {'file': str(rel_path), 'line': 0}
+                        if isinstance(v['location'], str): v['location'] = {'file': v['location'], 'line': 0}
+                        findings.append(v)
+                except Exception as parse_err:
+                     self.logger.warning(f"Failed to parse LLM response for {file_path.name}: {parse_err}")
+                     # Fallback to regex if BaseAgent failed (though BaseAgent handles regex too now)
+                     pass
+                         
+            except Exception as e:
+                self.logger.warning(f"Failed LLM scan for {file_path.name}: {e}")
+        
+        self.logger.info(f"LLM SAST Scan complete. Found {len(findings)} issues.")
+        return findings
     
     async def _run_security_tools(self, input_data: Dict[str, Any]) -> List[Dict]:
         """
@@ -372,13 +512,34 @@ class REDAgent(BaseAgent):
             # Collect all findings from executor
             for v in executor.scan_result.vulnerabilities:
                 findings.append(v.to_dict())
+            
+            # Sync context items that PentestExecutor might have found
+            if executor.scan_result.open_ports:
+                self.context_builder.add_open_ports(executor.scan_result.open_ports)
+            if executor.scan_result.technologies:
+                self.context_builder.add_technologies(executor.scan_result.technologies)
 
             self.logger.info(f"Scan complete: {len(findings)} total findings discovered.")
-            return findings
+            
+            # WORKAROUND: Capture sandbox path from locally created directory
+            # Since PentestExecutor handles cloning internally but doesn't expose the final path easily in this version
+            sandbox_path = None
+            if is_repo:
+                 # Look for the most recent sandbox in /tmp/ouroboros_sandbox
+                 sandbox_root = Path("/tmp/ouroboros_sandbox")
+                 if sandbox_root.exists():
+                     # Get latest directory
+                     subdirs = [d for d in sandbox_root.iterdir() if d.is_dir()]
+                     if subdirs:
+                         latest_sandbox = max(subdirs, key=lambda x: x.stat().st_mtime)
+                         sandbox_path = str(latest_sandbox)
+                         self.logger.info(f"Identified sandbox path for LLM SAST: {sandbox_path}")
+
+            return findings, sandbox_path
                 
         except Exception as e:
             self.logger.error(f"Security tool execution failed: {e}", exc_info=True)
-            return []
+            return [], None
     
     def _get_tools_for_profile(self, profile: str) -> List[str]:
         # Legacy method, kept for compatibility
@@ -453,14 +614,23 @@ Analyze these findings and output a JSON response with your vulnerability assess
                     if "type" in vuln_data and "severity" not in vuln_data:
                         vuln_data["severity"] = vuln_data["type"].lower()
                     
-                    # Map 'endpoint' or 'url' -> 'location.file' if location is missing
+                    # Map 'name' or 'title' -> 'type' if type is missing or generic
+                    if ("type" not in vuln_data or vuln_data.get("type") in ["unknown", "INFO", ""]) and ("name" in vuln_data or "title" in vuln_data):
+                         vuln_data["type"] = vuln_data.get("type") or vuln_data.get("name") or vuln_data.get("title")
+                    
+                    # Ensure title is also set if type is present
+                    if "title" not in vuln_data and "type" in vuln_data:
+                        vuln_data["title"] = vuln_data["type"]
+                    
+                    # Map 'endpoint' or 'url' or 'affected_endpoint' -> 'location.file' if location is missing
                     if "location" not in vuln_data:
-                        loc_file = vuln_data.get("endpoint") or vuln_data.get("url") or "unknown"
+                        loc_file = vuln_data.get("affected_endpoint") or vuln_data.get("endpoint") or vuln_data.get("url") or "unknown"
                         vuln_data["location"] = {"file": loc_file, "line": 0}
                     
-                    # Map 'name' -> 'type' if type is missing or generic
-                    if ("type" not in vuln_data or vuln_data.get("type") in ["unknown", "INFO"]) and "name" in vuln_data:
-                         vuln_data["type"] = vuln_data["name"]
+                    # Ensure affected_endpoint is set if location is present
+                    if not vuln_data.get("affected_endpoint") and "location" in vuln_data:
+                        if isinstance(vuln_data["location"], dict):
+                            vuln_data["affected_endpoint"] = vuln_data["location"].get("file", "unknown")
 
                     # Add ID if not present
                     if "id" not in vuln_data:

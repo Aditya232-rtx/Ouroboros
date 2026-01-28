@@ -1,0 +1,240 @@
+{
+  "scan_id": "SCAN-20260128-224838",
+  "vulnerabilities": [
+    {
+      "id": "RED-SAST-224935-0",
+      "title": "",
+      "type": "hardcoded_secret",
+      "severity": "high",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "database.js",
+        "line": 32,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The hardcoded password 'admin123' is stored in the database.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-1",
+      "title": "",
+      "type": "sql_injection",
+      "severity": "high",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 65,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The query `SELECT * FROM users WHERE username = '${username}' AND password = '${password}'` is vulnerable to SQL injection because it directly incorporates user input into the SQL statement without proper sanitization.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-2",
+      "title": "",
+      "type": "open_redirect",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 125,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `redirect` parameter in the `/login` endpoint is used to open a redirect, which could be an Open Redirect vulnerability if not handled carefully.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-3",
+      "title": "",
+      "type": "mass_assignment",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 153,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `INSERT INTO users (${columns}) VALUES (${values})` query allows mass assignment, which can lead to data leakage if the columns are not properly constrained.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-4",
+      "title": "",
+      "type": "idor",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 218,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `/profile` endpoint allows viewing any user's profile based on the `id` query parameter, which is a simple IDOR vulnerability.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-5",
+      "title": "",
+      "type": "stored_xss",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 235,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `message = `You searched for: ${query}`;` in the `/dashboard` endpoint is vulnerable to stored XSS because it directly incorporates user input into the rendered HTML.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-6",
+      "title": "",
+      "type": "path_traversal",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 342,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `/download` endpoint uses `path.join(__dirname, 'public/uploads', filename)` to determine the file path for download, which is vulnerable to path traversal if not validated properly.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    },
+    {
+      "id": "RED-SAST-224935-7",
+      "title": "",
+      "type": "ssrf",
+      "severity": "low",
+      "cwe": "",
+      "cvss": 0.0,
+      "location": {
+        "file": "app.js",
+        "line": 352,
+        "function": "",
+        "parameter": ""
+      },
+      "affected_endpoint": "",
+      "description": "The `/fetch-url` endpoint uses `fetch(url)` to make an HTTP request, which is vulnerable to SSRF (Server-Side Request Forgery) because it trusts the query parameter `url` without validation.",
+      "attack_vector": "network",
+      "poc_code": "",
+      "poc_success_rate": 0.0,
+      "remediation_hint": "",
+      "tools_detected_by": [
+        "llm_sast"
+      ],
+      "confidence": 0.95,
+      "reasoning": ""
+    }
+  ],
+  "statistics": {
+    "total_vulnerabilities": 8,
+    "critical_vulnerabilities": 0,
+    "high_vulnerabilities": 2,
+    "medium_vulnerabilities": 0,
+    "low_vulnerabilities": 6,
+    "info_vulnerabilities": 0,
+    "by_severity": {
+      "critical": 0,
+      "high": 2,
+      "medium": 0,
+      "low": 6
+    },
+    "avg_confidence": 0.9500000000000001,
+    "avg_cvss": 0.0,
+    "report_path": "outputs/red_agent/reports/ouroboros_report_20260128_224936.html"
+  },
+  "summary": {
+    "total_vulnerabilities": 8,
+    "critical_vulnerabilities": 0,
+    "high_vulnerabilities": 2,
+    "medium_vulnerabilities": 0,
+    "low_vulnerabilities": 6,
+    "info_vulnerabilities": 0,
+    "by_severity": {
+      "critical": 0,
+      "high": 2,
+      "medium": 0,
+      "low": 6
+    },
+    "avg_confidence": 0.9500000000000001,
+    "avg_cvss": 0.0,
+    "report_path": "outputs/red_agent/reports/ouroboros_report_20260128_224936.html"
+  },
+  "scan_complete": true
+}
