@@ -17,6 +17,7 @@ from src.agents import (
     GovernanceAgent,
     AuditAgent
 )
+from src.agents.research_agent import ResearchAgent
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class OuroborosWorkflow:
         self.doc_agent = DocumentationAgent()
         self.governance_agent = GovernanceAgent()
         self.audit_agent = AuditAgent()
+        self.research_agent = ResearchAgent()
         
         # Build workflow graph
         self.workflow = self._build_workflow()
@@ -45,6 +47,8 @@ class OuroborosWorkflow:
         Workflow Flow:
         1. RED scan → 2. Initial doc → 3. Governance → 4. BLUE fix
         → 5. RED verify → 6. Check verification → 7. Final doc → 8. Create PR → 9. Audit
+        
+        Note: Research Agent runs independently on schedule (see scheduled_research.py)
         """
         workflow = StateGraph(OuroborosState)
         
@@ -58,18 +62,19 @@ class OuroborosWorkflow:
         from src.orchestration.nodes.audit_node import audit_node
         
         # Add nodes
+        # Note: research_threats removed - now runs as scheduled background job
         workflow.add_node("red_scan", red_scan_node)
         workflow.add_node("doc_initial", doc_initial_node)
         workflow.add_node("governance", governance_node)
         workflow.add_node("blue_fix", blue_fix_node)
         workflow.add_node("red_verify", red_verify_node)
-        workflow.add_node("check_verification", self._check_verification_node)  # Keep inline for now as it's simple logic
+        workflow.add_node("check_verification", self._check_verification_node)
         workflow.add_node("doc_final", doc_final_node)
         workflow.add_node("create_pr", create_pr_node)
         workflow.add_node("audit", audit_node)
         
         # Add edges
-        workflow.set_entry_point("red_scan")
+        workflow.set_entry_point("red_scan")  # Changed from research_threats
         workflow.add_edge("red_scan", "doc_initial")
         workflow.add_edge("doc_initial", "governance")
         workflow.add_edge("governance", "blue_fix")
@@ -100,6 +105,8 @@ class OuroborosWorkflow:
         return workflow.compile()
     
     # ===== WORKFLOW NODES =====
+    # Note: research_threats_node removed - Research Agent now runs as scheduled background job
+    # See src/orchestration/scheduled_research.py
     
     async def _red_scan_node(self, state: OuroborosState) -> OuroborosState:
         """Node 1: RED Agent vulnerability discovery"""

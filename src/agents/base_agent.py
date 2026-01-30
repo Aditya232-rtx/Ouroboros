@@ -148,7 +148,12 @@ class BaseAgent(ABC):
             self.logger.debug(f"{self.agent_id}: Calling LLM")
             response = self.model.invoke(prompt, **kwargs)
             self.logger.debug(f"{self.agent_id}: LLM response received")
-            return response
+            
+            # Handle LangChain Message objects (ChatOllama)
+            if hasattr(response, 'content'):
+                return response.content
+                
+            return str(response)
         except Exception as e:
             self.logger.error(f"{self.agent_id}: LLM call failed: {e}")
             raise

@@ -33,12 +33,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loading, setLoading] = useState(true);
     const router = useRouter();
     const pathname = usePathname();
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
     // Fetch current user on mount
     useEffect(() => {
         async function loadUser() {
             try {
-                const response = await fetch("http://localhost:8000/auth/me", {
+                const response = await fetch(`${apiUrl}/auth/me`, {
                     headers: {
                         "Content-Type": "application/json",
                     },
@@ -72,7 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const logout = async () => {
         try {
-            await fetch("http://localhost:8000/auth/logout", {
+            await fetch(`${apiUrl}/auth/logout`, {
                 method: "POST",
                 credentials: "include",
             });

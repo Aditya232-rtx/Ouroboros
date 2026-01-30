@@ -15,6 +15,7 @@ export default function SignupPage() {
     });
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(false);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -28,7 +29,7 @@ export default function SignupPage() {
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:8000/auth/signup", {
+            const response = await fetch(`${apiUrl}/auth/signup`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

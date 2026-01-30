@@ -154,8 +154,15 @@ class REDAgent(BaseAgent):
             # Initialize Context for this target
             self.context_builder.set_target(validated_input.repo_url)
             
+            # Step 0.5: Load Dynamic Exploits (ARDEI Integration)
+            self.logger.info("Loading dynamic exploits...")
+            dynamic_findings = await self._run_dynamic_exploits(validated_input.model_dump())
+            
             # Run the tools
             tool_findings, sandbox_path = await self._run_security_tools(validated_input.model_dump())
+            
+            # Merge dynamic exploit findings
+            tool_findings.extend(dynamic_findings)
 
             # Step 1.5: Run Active LLM SAST Scan (Code Review)
             # Only if we have a sandbox (repository)
@@ -440,6 +447,98 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
         
         self.logger.info(f"LLM SAST Scan complete. Found {len(findings)} issues.")
         return findings
+    
+    async def _run_dynamic_exploits(self, input_data: Dict[str, Any]) -> List[Dict]:
+        """
+        Load and execute dynamically generated exploits (ARDEI Integration).
+        
+        Hot-reloads src/security/tools/dynamic_exploits.py and runs exploits
+        that match the target technology stack.
+        
+        Returns:
+            List of findings from dynamic exploits
+        """
+        findings = []
+        
+        try:
+            import importlib
+            
+            # Hot-reload dynamic exploits module
+            try:
+                import src.security.tools.dynamic_exploits as dynamic_exploits
+                dynamic_exploits = importlib.reload(dynamic_exploits)
+                exploit_list = getattr(dynamic_exploits, "DYNAMIC_EXPLOITS", [])
+            except ImportError as ie:
+                self.logger.debug(f"Dynamic exploits module not found: {ie}")
+                return []
+            
+            if not exploit_list:
+                self.logger.info("No dynamic exploits loaded")
+                return []
+            
+            self.logger.info(f"Loaded {len(exploit_list)} dynamic exploits")
+            
+            # Get target and tech stack metadata
+            target = input_data.get("repo_url", "")
+            
+            # Try to infer tech stack from context or use defaults
+            tech_stack = self.context_builder.build().get("data", {}).get("technologies", [])
+            if not tech_stack:
+                # Fallback: try to infer from target URL or use common stack
+                tech_stack = ["python", "javascript", "node", "express", "django", "react"]
+            
+            # Initialize executor for running exploits
+            from src.security.tools.executor import PentestExecutor
+            executor = PentestExecutor(target=target)
+            
+            # Execute each matching exploit
+            for exploit in exploit_list:
+                try:
+                    # Check if exploit targets relevant technology
+                    target_tech = getattr(exploit, "target_technology", "").lower()
+                    
+                    if target_tech and target_tech not in [t.lower() for t in tech_stack]:
+                        self.logger.debug(f"Skipping {exploit.id}: tech mismatch ({target_tech})")
+                        continue
+                    
+                    self.logger.info(f"Executing dynamic exploit: {getattr(exploit, 'id', 'unknown')}")
+                    
+                    # Execute exploit with sandbox safety
+                    result = exploit.execute(executor, target)
+                    
+                    if result.get("success"):
+                        # Convert to finding format
+                        finding = {
+                            "title": getattr(exploit, "id", "Dynamic Exploit"),
+                            "type": target_tech or "dynamic",
+                            "severity": getattr(exploit, "severity", "MEDIUM").lower(),
+                            "cve": getattr(exploit, "cve_id"),
+                            "description": result.get("evidence", ""),
+                            "location": {
+                                "file": target,
+                                "line": 0
+                            },
+                            "affected_endpoint": target,
+                            "tools_detected_by": ["research_agent_dynamic"],
+                            "confidence": 0.8,  # High confidence for verified exploits
+                            "reasoning": f"Dynamic exploit {exploit.id} succeeded"
+                        }
+                        
+                        findings.append(finding)
+                        self.logger.info(f"✅ Dynamic exploit {exploit.id} succeeded")
+                    else:
+                        self.logger.debug(f"❌ Dynamic exploit {exploit.id} failed: {result.get('evidence')}")
+                        
+                except Exception as e:
+                    self.logger.warning(f"Dynamic exploit execution failed: {e}")
+                    continue
+            
+            self.logger.info(f"Dynamic exploits complete: {len(findings)} successful")
+            return findings
+            
+        except Exception as e:
+            self.logger.error(f"Dynamic exploit loading failed: {e}", exc_info=True)
+            return []
     
     async def _run_security_tools(self, input_data: Dict[str, Any]) -> List[Dict]:
         """

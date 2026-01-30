@@ -16,6 +16,7 @@ export default function LoginPage() {
     const [loading, setLoading] = useState(false);
 
     const registered = searchParams.get("registered");
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -23,7 +24,7 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:8000/auth/login", {
+            const response = await fetch(`${apiUrl}/auth/login`, {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",

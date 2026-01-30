@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nmap \
     wget \
     gnupg \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Docker CLI (for Docker-in-Docker control)
@@ -30,10 +31,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
 
 # Install Gitleaks
-RUN curl -sS https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+RUN curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
 
 # Install Nuclei
-RUN curl -sS https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.tar.gz | tar -xz -C /usr/local/bin nuclei
+RUN curl -sSL https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.zip -o nuclei.zip && unzip nuclei.zip && mv nuclei /usr/local/bin/ && rm nuclei.zip
 
 # Copy requirements
 COPY requirements.txt .

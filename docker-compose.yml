@@ -78,6 +78,35 @@ services:
     networks:
       - ouroboros_network
 
+  # Research Scheduler - Background job for autonomous threat hunting
+  research-scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ouroboros-research-scheduler
+    command: python scripts/start_research_scheduler.py
+    environment:
+      OUROBOROS_RESEARCH_AGENT_ENABLED: ${OUROBOROS_RESEARCH_AGENT_ENABLED:-true}
+      RESEARCH_CYCLE_HOURS: ${RESEARCH_CYCLE_HOURS:-0,8,16}
+      RESEARCH_TECH_STACK: ${RESEARCH_TECH_STACK:-python,javascript,react,express,django,flask,fastapi,node,typescript}
+      RESEARCH_FINDINGS_DIR: ${RESEARCH_FINDINGS_DIR:-./research_findings}
+      BRAVE_API_KEY: ${BRAVE_API_KEY}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://localhost:11434}
+      DATABASE_URL: ${DATABASE_URL}
+      REDIS_URL: ${REDIS_URL}
+    volumes:
+      - ./src:/app/src:rw
+      - ./scripts:/app/scripts:ro
+      - ./research_findings:/app/research_findings:rw
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - ouroboros_network
+
 volumes:
   postgres_data:
     driver: local

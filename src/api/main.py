@@ -8,7 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import scan_router, status_router, reports_router, health_router, auth_router
+from src.api.routes import scan_router, status_router, reports_router, health_router, auth_router, research_router
 from src.api.middleware import LoggingMiddleware, RateLimitMiddleware
 
 # Configure logging
@@ -51,6 +51,7 @@ app.include_router(health_router)
 app.include_router(scan_router)
 app.include_router(status_router)
 app.include_router(reports_router)
+app.include_router(research_router)
 
 
 @app.on_event("startup")
