@@ -74,11 +74,13 @@ class BLUEAgent(BaseAgent):
         model = get_model("blue")
         super().__init__(model=model, agent_id="BLUE")
         
-        # Simplified System Prompt - Focus on generating working fixes
+        # Comprehensive System Prompt - Handles all vulnerability types
         self.system_prompt = """You are a security expert who fixes vulnerabilities in code.
 
 ## YOUR EXPERTISE
 - Secure coding in Python, JavaScript, Java, Go, PHP, Rust
+- Container security (Docker, Kubernetes)
+- Infrastructure as Code security (Terraform, CloudFormation)
 - OWASP Top 10 and CWE vulnerability patterns
 - Defense-in-depth security principles
 
@@ -89,12 +91,30 @@ class BLUEAgent(BaseAgent):
 4. Make minimal, surgical changes
 5. Preserve existing functionality
 
-## COMMON FIX PATTERNS
+## COMMON FIX PATTERNS BY CATEGORY
+
+### Code Vulnerabilities
 - SQL Injection: Use parameterized queries, never string concat
 - XSS: Use html.escape(), textContent, or template auto-escaping
 - Command Injection: Use subprocess with list args, no shell=True
 - Path Traversal: Use os.path.basename() or validate against allowlist
-- SSRF: Validate URLs against domain allowlist"""
+- SSRF: Validate URLs against domain allowlist
+
+### Container Security (Dockerfile)
+- Root User (CWE-250): Add USER non-root instruction
+  Example: USER node or USER 1000:1000
+- Missing HEALTHCHECK (CWE-20): Add HEALTHCHECK instruction
+  Example: HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/ || exit 1
+- Unpinned Base Image: Use specific version tags
+  Example: FROM node:18.19.0-alpine instead of FROM node:latest
+- Secrets in ENV: Use build args or secrets management
+  Example: Use --mount=type=secret instead of ENV
+
+### Configuration Security
+- Debug Mode: Ensure DEBUG=False in production
+- CORS Misconfiguration: Restrict Access-Control-Allow-Origin
+- Missing Security Headers: Add CSP, X-Frame-Options, etc.
+- Insecure TLS: Enforce TLS 1.2+ with strong ciphers"""
         
         # Fix templates by vulnerability type (fallback when LLM fails)
         # Extended with patterns from blue_agent_system_prompt.md
@@ -148,6 +168,32 @@ class BLUEAgent(BaseAgent):
                 "approach": "secure_config",
                 "pattern_before": r"debug\s*=\s*True|CORS\(\*\)|Access-Control-Allow-Origin:\s*\*",
                 "fix_hint": "Disable debug mode, restrict CORS, add security headers"
+            },
+            # Dockerfile-specific vulnerabilities
+            "configuration_misconfiguration": {
+                "approach": "container_hardening",
+                "pattern_before": r"FROM.*:latest|^(?!.*USER)",
+                "fix_hint": "Add USER instruction for non-root, add HEALTHCHECK, pin base image versions"
+            },
+            "cwe-250": {  # Execution with Unnecessary Privileges
+                "approach": "least_privilege",
+                "pattern_before": r"FROM|WORKDIR",
+                "fix_hint": "Add 'USER node' or 'USER 1000:1000' before CMD/ENTRYPOINT"
+            },
+            "cwe-20": {  # Improper Input Validation
+                "approach": "health_monitoring",
+                "pattern_before": r"CMD|ENTRYPOINT",
+                "fix_hint": "Add HEALTHCHECK instruction for container health monitoring"
+            },
+            "root_user": {
+                "approach": "non_root_user",
+                "pattern_before": r"FROM",
+                "fix_hint": "Add USER instruction: USER node or USER 1000:1000"
+            },
+            "missing_healthcheck": {
+                "approach": "add_healthcheck",
+                "pattern_before": r"CMD|ENTRYPOINT",
+                "fix_hint": "Add HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/ || exit 1"
             }
         }
     
@@ -252,6 +298,71 @@ class BLUEAgent(BaseAgent):
                 file_path = file_path[len(prefix):]
                 break
         
+    def _get_cwe_fix_guidance(self, cwe: str, vuln_type: str, language: str) -> str:
+        """
+        Get specific fix guidance based on CWE and vulnerability type.
+        This helps the LLM generate the correct fix.
+        """
+        cwe_upper = cwe.upper() if cwe else ""
+        vuln_lower = vuln_type.lower() if vuln_type else ""
+        
+        # Dockerfile-specific guidance
+        if language == "dockerfile":
+            if "250" in cwe_upper or "root" in vuln_lower or "privilege" in vuln_lower:
+                return """For CWE-250 (Execution with Unnecessary Privileges):
+- Add a USER instruction to run as non-root
+- Example: Add 'USER node' or 'USER 1000:1000' BEFORE the CMD/ENTRYPOINT
+- The fixed Dockerfile MUST include a USER instruction"""
+            
+            if "20" in cwe_upper or "healthcheck" in vuln_lower or "input" in vuln_lower:
+                return """For CWE-20 (Improper Input Validation) / Missing HEALTHCHECK:
+- Add a HEALTHCHECK instruction for container health monitoring
+- Example: HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:3000/ || exit 1
+- The fixed Dockerfile MUST include a HEALTHCHECK instruction"""
+            
+            # Generic Dockerfile fix
+            return """For Dockerfile security:
+- Add USER instruction for non-root execution (e.g., USER node)
+- Add HEALTHCHECK instruction for health monitoring
+- Pin base image versions (avoid :latest)
+- The fixed code MUST include both USER and HEALTHCHECK if missing"""
+        
+        # Code vulnerability guidance
+        cwe_guidance = {
+            "89": "Use parameterized queries or prepared statements. Never concatenate user input into SQL.",
+            "79": "Escape HTML output using html.escape() or use template auto-escaping. Set CSP headers.",
+            "78": "Use subprocess with list arguments, never shell=True. Validate and sanitize all inputs.",
+            "22": "Use os.path.basename() or validate paths against an allowlist. Block '..' sequences.",
+            "918": "Validate URLs against a domain allowlist. Block private IP ranges (10.x, 192.168.x, 127.x).",
+            "502": "Avoid pickle/yaml.load. Use JSON or add HMAC signature verification.",
+            "639": "Add authorization checks to verify the user owns the requested resource.",
+            "287": "Use bcrypt/argon2 for password hashing. Implement secure session management.",
+            "327": "Use AES-256-GCM for encryption. Use secrets module for random number generation.",
+        }
+        
+        # Extract CWE number
+        import re
+        cwe_match = re.search(r'(\d+)', cwe_upper)
+        if cwe_match:
+            cwe_num = cwe_match.group(1)
+            if cwe_num in cwe_guidance:
+                return f"For {cwe}: {cwe_guidance[cwe_num]}"
+        
+        # Fallback based on vulnerability type
+        vuln_guidance = {
+            "sql": "Use parameterized queries with placeholders (?)",
+            "xss": "Use html.escape() or textContent instead of innerHTML",
+            "command": "Use subprocess with list args, no shell=True",
+            "path": "Use os.path.basename() to sanitize file paths",
+            "ssrf": "Validate URLs against an allowlist",
+            "config": "Disable debug mode, restrict CORS, add security headers",
+        }
+        
+        for key, guidance in vuln_guidance.items():
+            if key in vuln_lower:
+                return guidance
+        
+        return "Fix the security vulnerability while preserving functionality."
         return file_path.lstrip("/")
     
     def _read_file_content(self, sandbox_path: str, file_path: str) -> Optional[str]:
@@ -298,6 +409,10 @@ class BLUEAgent(BaseAgent):
         cwe = vuln_data.get('cwe', 'Unknown')
         location = vuln_data.get('vulnerability_location', {})
         line_number = location.get('line', 'unknown')
+        language = vuln_data.get('language', 'python').lower()
+        
+        # Get CWE-specific fix guidance
+        fix_guidance = self._get_cwe_fix_guidance(cwe, vuln_type, language)
         
         # Construct simple Markdown-based prompt (no complex JSON required)
         prompt = f"""You are a security expert. Fix this vulnerability.
@@ -307,11 +422,15 @@ class BLUEAgent(BaseAgent):
 - CWE: {cwe}  
 - File: {file_path}
 - Line: {line_number}
+- Language: {language}
 
 ## CURRENT CODE
 ```
 {vuln_code}
 ```
+
+## REQUIRED FIX
+{fix_guidance}
 
 ## YOUR TASK
 Provide the FIXED code that removes this vulnerability.
@@ -337,7 +456,8 @@ What your fix does to prevent the vulnerability.
 IMPORTANT:
 - The VULNERABLE CODE must match EXACTLY what's in the file
 - The FIXED CODE must be complete and working (not pseudocode)
-- Keep changes minimal - only fix the security issue"""
+- Keep changes minimal - only fix the security issue
+- MUST include the required fix from above"""
         
         # Try up to 2 times
         for attempt in range(2):
@@ -351,6 +471,8 @@ IMPORTANT:
                     self.logger.info(f"Root cause: {fix_data.get('reasoning', 'N/A')[:100]}")
                     
                     # Create FixOption
+                    # Generate valid Python test function name (sanitize spaces and special chars)
+                    safe_vuln_name = re.sub(r'[^a-zA-Z0-9]', '_', vuln_type).lower().strip('_')
                     fix = FixOption(
                         option=1,
                         description=fix_data.get("description", f"Fix {vuln_type}"),
@@ -361,7 +483,7 @@ IMPORTANT:
                             after=fix_data.get("after", ""),
                             lines_changed=len(fix_data.get("after", "").split("\n"))
                         ),
-                        test_code=f"def test_{vuln_type.replace('-', '_')}_fix(): pass",
+                        test_code=f"def test_{safe_vuln_name}_fix():\n    # Test that vulnerability is fixed\n    assert True  # Placeholder - actual tests depend on vulnerability type\n",
                         safety_gates={},
                         confidence=0.8,
                         recommendation="PENDING",
