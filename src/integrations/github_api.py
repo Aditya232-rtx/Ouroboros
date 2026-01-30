@@ -69,6 +69,12 @@ class GitHubClient:
                 timeout=300
             )
             logger.info(f"Successfully cloned {repo_url}")
+            
+            # Configure git identity for this repository
+            logger.info("Configuring git identity for Ouroboros")
+            subprocess.run(["git", "-C", str(target_dir), "config", "user.name", "ouroboros-ai-code"], check=True)
+            subprocess.run(["git", "-C", str(target_dir), "config", "user.email", "ouroboros1679@gmail.com"], check=True)
+            
             return target_dir
         
         except subprocess.CalledProcessError as e:
@@ -140,6 +146,31 @@ class GitHubClient:
         
         logger.info(f"Created commit {commit_sha}")
         return commit_sha
+    
+    def fork_repository(self, repo_full_name: str) -> str:
+        """
+        Fork a repository to the authenticated user's account.
+        
+        Args:
+            repo_full_name: "owner/repo" to fork
+            
+        Returns:
+            Clone URL of the new fork (e.g. https://github.com/my-user/repo.git)
+        """
+        if not self.client:
+            raise ValueError("GitHub client not initialized")
+            
+        logger.info(f"Forking {repo_full_name}...")
+        try:
+            user = self.client.get_user()
+            original_repo = self.client.get_repo(repo_full_name)
+            fork = user.create_fork(original_repo)
+            
+            logger.info(f"Forked to {fork.html_url}")
+            return fork.clone_url
+        except GithubException as e:
+            logger.error(f"Failed to fork repository: {e}")
+            raise
     
     def create_pull_request(
         self,
