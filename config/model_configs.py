@@ -36,17 +36,17 @@ RED_AGENT_CONFIG = ModelConfig(
 )
 
 # BLUE Agent Model Configuration
-# DeepSeek-Coder 1.3B for testing (~2.2 GB)
+# Qwen2.5-Coder-3B-Instruct (Abliterated) - Better reasoning and instruction following
 BLUE_AGENT_CONFIG = ModelConfig(
-    name="DeepSeek-Coder-1.3B",
-    model_path="models/deepseek-coder-1.3b-instruct.Q6_K.gguf",
-    temperature=0.2,  # Deterministic fix generation
-    max_tokens=2048,  # Reduced for smaller model
-    n_ctx=4096,  # Reduced context
+    name="Qwen2.5-Coder-3B-Blue",
+    model_path="models/Qwen2.5-Coder-3B-Instruct-abliterated-Q8_0.gguf",
+    temperature=0.7,  # Creative yet focused fix generation
+    max_tokens=2048,
+    n_ctx=8192,  # Larger context for better code understanding
     top_p=0.85,
-    n_gpu_layers=25,  # Reduced for smaller model
+    n_gpu_layers=35,  # More layers for Q8 model
     repeat_penalty=1.05,
-    stop_sequences=["</think>", "END_OF_FIX"]
+    stop_sequences=["<|im_end|>", "</s>", "END_OF_FIX"]
 )
 
 # SUPPORT AGENTS (Governance, Documentation, Audit)

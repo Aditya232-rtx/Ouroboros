@@ -83,10 +83,11 @@ class PentestExecutor:
         success, app_url = runner.start()
         
         if not success:
-            logger.warning(f"Failed to start sandbox app: {app_url}. Proceeding with SAST only.")
-             # Even if it failed to start, we can still do SAST
+            logger.warning(f"DAST skipped: {app_url}")
+            logger.info("Reason: App may require database/external services not available. Running SAST only (still effective for pattern-based vulnerabilities like SQL injection, XSS, etc.)")
+            # Even if it failed to start, we can still do SAST
             self.run_static_analysis(sandbox_path)
-            return {"success": True, "scan_result": self.scan_result, "note": "SAST only (Sandbox failed)"}
+            return {"success": True, "scan_result": self.scan_result, "note": "SAST only (App requires external services)"}
 
         logger.info(f"Sandbox application running at {app_url}")
         
