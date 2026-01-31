@@ -63,6 +63,7 @@ class Scan(Base):
     vulnerabilities = relationship("Vulnerability", back_populates="scan", cascade="all, delete-orphan")
     fixes = relationship("Fix", back_populates="scan", cascade="all, delete-orphan")
     audit_events = relationship("AuditEvent", back_populates="scan", cascade="all, delete-orphan")
+    logs = relationship("ScanLog", back_populates="scan", cascade="all, delete-orphan")
 
 
 class Vulnerability(Base):
@@ -180,6 +181,23 @@ class AuditEvent(Base):
     
     # Relationships
     scan = relationship("Scan", back_populates="audit_events")
+
+
+class ScanLog(Base):
+    """Log entry persisted for a scan"""
+    __tablename__ = "scan_logs"
+    
+    id = Column(Integer, primary_key=True)
+    scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False)
+    
+    # Log details
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    level = Column(String(20), default="INFO")
+    source = Column(String(100), default="SYSTEM")
+    message = Column(Text)
+    
+    # Relationships
+    scan = relationship("Scan", back_populates="logs")
 
 
 class User(Base):

@@ -30,6 +30,7 @@ async def red_scan_node(state: OuroborosState) -> OuroborosState:
     state["vulnerabilities"] = result.get("vulnerabilities", [])
     state["scan_complete"] = result.get("scan_complete", False)
     state["scan_statistics"] = result.get("statistics", {})
+    state["sandbox_info"] = result.get("sandbox_info")
     state["current_phase"] = "scan_complete"
     
     logger.info(f"✅ RED Scan complete: {len(state['vulnerabilities'])} vulnerabilities found")

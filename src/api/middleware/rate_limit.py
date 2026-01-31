@@ -25,8 +25,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     
     # Rate limits: (requests, window_seconds)
-    AUTHENTICATED_LIMIT: Tuple[int, int] = (100, 60)
-    UNAUTHENTICATED_LIMIT: Tuple[int, int] = (10, 60)
+    # TEMPORARY: Increased for testing - reduce in production
+    AUTHENTICATED_LIMIT: Tuple[int, int] = (1000, 60)  # 1000 req/min
+    UNAUTHENTICATED_LIMIT: Tuple[int, int] = (1000, 60)  # 1000 req/min - Increased for dev
     
     def __init__(self, app):
         super().__init__(app)
@@ -35,7 +36,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: Request, call_next):
         # Get identifier (API key or IP)
-        identifier = request.headers.get("X-API-Key") or request.client.host
+        identifier = request.headers.get("X-API-Key") or (request.client.host if request.client else "unknown_client")
         
         # Determine limit based on authentication
         if request.headers.get("X-API-Key"):

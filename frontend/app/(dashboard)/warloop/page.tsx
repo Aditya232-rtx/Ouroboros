@@ -1,63 +1,127 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import TerminalLog from "../../components/TerminalLog";
-import { fetchStats, fetchLogs, fetchScanStatus } from "../../lib/api";
-import { Stats, LogEntry, ScanStatus } from "../../lib/types";
+import { fetchScanStatus, startScan } from "../../lib/api";
+import { ScanStatus } from "../../lib/types";
 import { Pause, Play } from "lucide-react";
+import { useScanLogs } from "../../hooks/useScanLogs";
 
 export default function WarRoomPage() {
     const searchParams = useSearchParams();
     const repo = searchParams.get("repo");
 
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
+    // Use custom hook for logs
+    const [scanId, setScanId] = useState<string | null>(null);
     const [isPaused, setIsPaused] = useState(false);
+    const { logs } = useScanLogs(scanId, isPaused);
 
+    const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
+    const [isStartingScan, setIsStartingScan] = useState(false);
+    const hasStartedRef = useRef(false);
+
+    // Sync scanId with URL or recover latest
     useEffect(() => {
-        // Initial fetch
-        const loadData = async () => {
-            try {
-                // In a real app, scanId would come from context or active scan
-                // For V1 demo, we poll the latest scan or a fixed ID if available
-                // We need to know the active scanId.
-                // Strategy: We can fetch latest scan status if API supports it, 
-                // or just pass a known ID if we triggered it.
-                // For now, let's poll assuming we have a way to get the ID.
-                // If no ID, we might wait.
-
-                // However, without a scanId context, we can't poll logs.
-                // I will assume we can get the active scan from a global state or search params if passed.
-                // If not, we poll nothing until a scan starts.
-
-                // If `repo` param is there, we assume we might be viewing that repo's scan.
-                // Let's fallback to "latest" if possible or keep empty until scan starts.
-
-                // Temporarily: 
-                const currentScanId = "latest"; // Backend needs to support this or we need to pass it.
-                // Since backend doesn't support "latest" yet, we simply won't get logs 
-                // UNLESS we trigger the scan and get the ID.
-
-                // Let's just poll and if empty, fine.
-                const activeLogs = await fetchLogs(currentScanId);
-                if (activeLogs.length > 0) setLogs(activeLogs);
-
-                // Status
-                const status = await fetchScanStatus(currentScanId);
+        const urlScanId = searchParams.get("scanId");
+        if (urlScanId && !scanId) {
+            console.log("Resuming existing scan from URL:", urlScanId);
+            setScanId(urlScanId);
+            fetchScanStatus(urlScanId).then(status => {
                 if (status) setScanStatus(status);
-            } catch (e) {
-                console.error("Polling failed", e);
+            }).catch(console.error);
+        } else if (!urlScanId && !scanId && !repo) {
+            // If no params, try to recover "latest" scan logic
+            console.log("No params, checking for latest scan...");
+            fetchScanStatus("latest").then(status => {
+                if (status && status.id) {
+                    console.log("Recovered latest scan:", status.id);
+                    setScanId(status.id);
+                    setScanStatus(status);
+
+                    // Update URL to persist this recovered ID
+                    const newUrl = new URL(window.location.href);
+                    newUrl.searchParams.set("scanId", status.id);
+                    if (status.repo_url) newUrl.searchParams.set("repo", status.repo_url);
+                    window.history.replaceState({}, "", newUrl.toString());
+                }
+            }).catch(() => {
+                console.log("No latest scan found.");
+            });
+        }
+    }, [searchParams, scanId, repo]);
+
+    // Auto-start scan ONLY if no scanId exists AND repo is provided
+    useEffect(() => {
+        const startScanForRepo = async () => {
+            // CRITICAL FIX: Don't start if we have a scanId (from state or URL)
+            const urlScanId = searchParams.get("scanId");
+            if (!repo || scanId || urlScanId || isStartingScan || hasStartedRef.current) return;
+
+            hasStartedRef.current = true;
+            setIsStartingScan(true);
+            try {
+                console.log("Starting NEW scan for repo:", repo);
+                const response = await startScan({ repo_url: repo });
+
+                console.log("Scan started with ID:", response.scan_id);
+                setScanId(response.scan_id);
+
+                // Update URL without reloading
+                const newUrl = new URL(window.location.href);
+                newUrl.searchParams.set("scanId", response.scan_id);
+                window.history.replaceState({}, "", newUrl.toString());
+
+                // Also set initial status
+                setScanStatus({
+                    id: response.scan_id,
+                    status: "scanning",
+                    progress: 0,
+                    current_phase: "initializing",
+                    repo_url: repo,
+                    started_at: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error("Failed to start scan:", error);
+                alert("Failed to start scan. Please check if the repository URL is valid and try again.");
+            } finally {
+                setIsStartingScan(false);
             }
         };
 
-        loadData();
-        const interval = setInterval(loadData, 2000);
+        startScanForRepo();
+    }, [repo, scanId, isStartingScan, searchParams]);
 
+    // Poll for scan status (Logs handled by useScanLogs)
+    useEffect(() => {
+        if (!scanId || isPaused) return;
+
+        let errorCount = 0;
+        const loadStatus = async () => {
+            try {
+                const status = await fetchScanStatus(scanId);
+                // Only update if we got a valid status
+                if (status) {
+                    setScanStatus(status);
+                    errorCount = 0;
+                } else {
+                    // If null (404/429), increment error count but KEEP existing state
+                    errorCount++;
+                    console.warn(`Status fetch returned null (Attempt ${errorCount})`);
+                }
+            } catch (e) {
+                console.error("Status polling failed", e);
+                errorCount++;
+            }
+        };
+
+        // Initial load
+        loadStatus();
+        const interval = setInterval(loadStatus, 3000);
 
         return () => clearInterval(interval);
-    }, [isPaused]);
+    }, [isPaused, scanId]);
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">
@@ -67,10 +131,10 @@ export default function WarRoomPage() {
                     <div className="flex items-center space-x-2 px-3 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700">
                         <span className="text-slate-500 text-xs font-mono">repo:</span>
                         <span className="text-slate-900 dark:text-slate-200 font-mono font-bold text-sm">
-                            {repo?.replace("https://github.com/", "") || "stripe/stripe-ios"}
+                            {repo?.replace("https://github.com/", "") || scanStatus?.repo_url?.replace("https://github.com/", "") || "Loading..."}
                         </span>
                         <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            Active
+                            {scanStatus?.status || "initializing"}
                         </span>
                     </div>
                 </div>
@@ -83,9 +147,17 @@ export default function WarRoomPage() {
                         {isPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
                         <span>{isPaused ? "Resume" : "Pause Sim"}</span>
                     </button>
-                    <button className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors">
-                        Force Scan
-                    </button>
+                    {isStartingScan ? (
+                        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 text-sm font-medium">
+                            <div className="w-3 h-3 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+                            <span>Starting scan...</span>
+                        </div>
+                    ) : scanId ? (
+                        <div className="flex items-center space-x-2 px-3 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 text-sm font-medium">
+                            <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                            <span>Scan Active</span>
+                        </div>
+                    ) : null}
                 </div>
             </div>
 
@@ -96,7 +168,7 @@ export default function WarRoomPage() {
                     <div className="absolute top-4 left-4 z-10 flex items-center space-x-2">
                         <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
                         <span className="text-xs font-mono font-medium text-slate-500 uppercase tracking-widest">
-                            Agent Loop Active
+                            {scanStatus?.current_phase || "Agent Loop Active"}
                         </span>
                     </div>
 

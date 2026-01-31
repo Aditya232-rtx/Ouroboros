@@ -37,4 +37,24 @@ async def doc_final_node(state: OuroborosState) -> OuroborosState:
     
     logger.info(f"✅ Final report created: {state.get('final_report_url')}")
     
+    # Cleanup Sandbox
+    sandbox_info = state.get("sandbox_info")
+    if sandbox_info:
+        logger.info(f"🧹 Cleaning up sandbox resources...")
+        try:
+             import subprocess
+             container_id = sandbox_info.get("container_id")
+             compose_project = sandbox_info.get("compose_project")
+             sandbox_path = sandbox_info.get("sandbox_path")
+             
+             if compose_project and sandbox_path:
+                 subprocess.run(["docker-compose", "-p", compose_project, "down", "-v"], cwd=sandbox_path, capture_output=True)
+             
+             if container_id:
+                 subprocess.run(["docker", "rm", "-f", container_id], capture_output=True)
+                 logger.info(f"Stopped container {container_id}")
+                 
+        except Exception as e:
+            logger.error(f"Failed to cleanup sandbox: {e}")
+
     return state

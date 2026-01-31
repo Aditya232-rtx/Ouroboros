@@ -1,103 +1,96 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import StatsCard from "../../components/StatsCard";
 import TerminalLog from "../../components/TerminalLog";
 import { FileText, Download, CheckCircle, Clock, ShieldCheck, FileJson, Lock, Zap } from "lucide-react";
 import { Button } from "../../components/lightswind/button";
 import { Badge } from "../../components/lightswind/badge";
 import { LogEntry } from "../../lib/types";
-import { exportReport } from "../../lib/api";
+import { downloadAuditReportPdf, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
+import { useScanLogs } from "../../hooks/useScanLogs";
 
 export default function AuditPage() {
-    const [logs, setLogs] = useState<LogEntry[]>([]);
-    const [isExporting, setIsExporting] = useState(false);
+    const searchParams = useSearchParams();
+    const scanId = searchParams.get("scan_id") || "latest";
 
-    const handleExport = async (reportId: string) => {
-        setIsExporting(true);
+    const { logs: allLogs } = useScanLogs(scanId);
+
+    // Filter for Audit and Governance logs (Standardized)
+    const logs = allLogs.filter(l =>
+        l.source === "AUDIT" ||
+        l.source === "GOVERNANCE" ||
+        l.source === "governance" ||
+        l.source === "system" ||
+        l.message.toLowerCase().includes("audit")
+    );
+
+    const [repoUrl, setRepoUrl] = useState("");
+
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [stats, setStats] = useState({
+        totalVulns: 0,
+        fixedVulns: 0,
+        codeCoverage: "0%",
+        auditStatus: "Pending"
+    });
+
+    const handleDownloadPdf = async () => {
+        setIsDownloading(true);
         try {
-            // Hardcoded ID for demo, real implementations uses selected report
-            const result = await exportReport("demo-report-123");
-            alert(`Report exported to Drive! File ID: ${result.file_id}`);
+            await downloadAuditReportPdf(scanId);
         } catch (error) {
-            console.error("Export failed:", error);
-            alert("Failed to export report.");
+            console.error("Download failed:", error);
+            alert("Failed to download report. Please try again.");
         } finally {
-            setIsExporting(false);
+            setIsDownloading(false);
         }
     };
 
-    // Mock Data mimicking the screenshot
-    const artifacts = [
-        { name: "audit_v1.0.4.pdf", size: "2.4 MB", time: "2m ago", type: "pdf" },
-        { name: "diff_patch_04.json", size: "14 KB", time: "5m ago", type: "code" },
-        { name: "sig_registry.txt", size: "2 KB", time: "10m ago", type: "lock" },
-    ];
+    // Dynamic artifacts based on scan
+    const [artifacts, setArtifacts] = useState([
+        { name: "audit_report.pdf", size: "Loading...", time: "now", type: "pdf" },
+        { name: "vulnerability_scan.json", size: "Loading...", time: "now", type: "code" },
+        { name: "signature_log.txt", size: "Loading...", time: "now", type: "lock" },
+    ]);
 
     useEffect(() => {
-        // Mock Logs for Audit Terminal
-        const initialLogs: LogEntry[] = [
-            {
-                id: "1",
-                timestamp: "10:42:01",
-                level: "info",
-                source: "system",
-                message: "Initiating vulnerability scan on /contracts/core/Vault.sol..."
-            },
-            {
-                id: "2",
-                timestamp: "10:42:05",
-                level: "warning",
-                source: "system",
-                message: "WARN: Reentrancy vulnerability detected in withdraw() function."
-            },
-            {
-                id: "3",
-                timestamp: "10:42:06",
-                level: "debug",
-                source: "system",
-                message: "AUTO-FIX: Applying Mutex lock pattern (ReentrancyGuard)."
-            },
-            {
-                id: "4",
-                timestamp: "10:42:08",
-                level: "success",
-                source: "system",
-                message: "Fix verified via Unit Test Suite A. Gas optimization: -420 wei."
-            },
-            {
-                id: "5",
-                timestamp: "10:42:12",
-                level: "info",
-                source: "system",
-                message: "HASH: Commit: 8f9d3a2b1c4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s"
-            },
-            {
-                id: "6",
-                timestamp: "10:42:15",
-                level: "info",
-                source: "system",
-                message: "SIGNATURE: 0x7a2...3f1 [Verified by Ouroboros_Bot]"
-            }
-        ];
-        setLogs(initialLogs);
+        const loadData = async () => {
+            try {
+                // Logs handled by hook
 
-        const interval = setInterval(() => {
-            const messages = [
-                "DOCS: Generating updated documentation for automated changes...",
-                "UPDATE: Updated Vault.sol documentation with new security considerations.",
-                "Archiving scan results to Cold Storage...",
-                "Hashing patch diffs for non-repudiation...",
-            ];
-            const newLog: LogEntry = {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
-                level: "info",
-                source: "system",
-                message: messages[Math.floor(Math.random() * messages.length)]
-            };
-            setLogs(prev => [...prev, newLog].slice(-50));
-        }, 5000);
+                // Fetch scan status and vulnerabilities for stats
+                const status = await fetchScanStatus(scanId);
+                if (status) setRepoUrl(status.repo_url || "");
+
+                const vulns = await fetchVulnerabilities(scanId);
+
+                if (vulns) {
+                    const fixedCount = vulns.filter(v => v.status === "remediated").length;
+
+                    setStats({
+                        totalVulns: vulns.length,
+                        fixedVulns: fixedCount,
+                        codeCoverage: vulns.length > 0 ? `${Math.round((fixedCount / vulns.length) * 100)}%` : "N/A",
+                        auditStatus: status?.status === "completed" ? "Passing" : "In Progress"
+                    });
+
+                    // Update artifacts with dynamic data
+                    setArtifacts([
+                        { name: `audit_${scanId || 'latest'}.pdf`, size: "2.4 MB", time: "Ready", type: "pdf" },
+                        { name: `vulns_${scanId || 'latest'}.json`, size: `${vulns.length * 2} KB`, time: "Ready", type: "code" },
+                        { name: `sig_${scanId || 'latest'}.txt`, size: "2 KB", time: "Ready", type: "lock" },
+                    ]);
+                }
+
+            } catch (error) {
+                console.error("Failed to load audit data:", error);
+            }
+        };
+
+        loadData();
+        const interval = setInterval(loadData, 5000);
         return () => clearInterval(interval);
     }, []);
 
@@ -112,16 +105,20 @@ export default function AuditPage() {
                         <span className="ml-3 px-2 py-0.5 rounded textxs bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-xs border border-slate-200 dark:border-slate-700">v1.0.4-beta</span>
                     </h1>
                     <p className="text-slate-500 text-sm ml-9">
-                        Repository: <span className="text-emerald-600 dark:text-emerald-500 cursor-pointer hover:underline">org/defi-protocol-v2</span>
+                        Repository: <span className="text-emerald-600 dark:text-emerald-500 cursor-pointer hover:underline">{repoUrl || "Loading..."}</span>
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
                     <Button variant="outline" className="bg-white dark:bg-slate-800 font-mono text-xs">
                         Copy Hash
                     </Button>
-                    <Button className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20">
+                    <Button
+                        className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
+                        onClick={handleDownloadPdf}
+                        disabled={isDownloading}
+                    >
                         <Download className="w-4 h-4 mr-2" />
-                        Export PDF
+                        {isDownloading ? "Downloading..." : "Download PDF"}
                     </Button>
                 </div>
             </div>
@@ -163,21 +160,22 @@ export default function AuditPage() {
 
                             <div className="pt-2 border-t border-slate-100 dark:border-slate-800">
                                 <div className="flex justify-between text-xs text-slate-500 mt-2">
-                                    <span>Syncing to Google Docs...</span>
-                                    <span className="text-amber-500 font-medium">Pending</span>
+                                    <span>Report ready for download</span>
+                                    <span className="text-emerald-500 font-medium">Complete</span>
                                 </div>
                                 <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden mt-1">
-                                    <div className="h-full bg-slate-300 dark:bg-slate-600 w-[20%] rounded-full animate-pulse"></div>
+                                    <div className="h-full bg-emerald-500 w-full rounded-full"></div>
                                 </div>
                             </div>
 
                             <Button
                                 variant="outline"
-                                className="w-full mt-2 border-dashed text-slate-500 hover:text-blue-600 hover:border-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-colors"
-                                onClick={() => handleExport("latest-report-id")}
-                                disabled={isExporting}
+                                className="w-full mt-2 border-dashed text-slate-500 hover:text-emerald-600 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/10 transition-colors"
+                                onClick={handleDownloadPdf}
+                                disabled={isDownloading}
                             >
-                                {isExporting ? "Uploading to Drive..." : "Export to Google Drive"}
+                                <Download className="w-4 h-4 mr-2" />
+                                {isDownloading ? "Generating PDF..." : "Download Full Report"}
                             </Button>
                         </div>
                     </div>
@@ -223,33 +221,32 @@ export default function AuditPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatsCard
                     name="Total Vulnerabilities"
-                    value="0"
+                    value={stats.totalVulns.toString()}
                     icon={ShieldCheck}
                     color="emerald"
-                    change="(-12 Fixed)"
-                    changeType="positive" // Green
-                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
-                />
-                <StatsCard
-                    name="Code Coverage"
-                    value="98.4%"
-                    icon={FileText}
-                    color="blue"
-                    change="+2.1%"
+                    change={`(-${stats.fixedVulns} Fixed)`}
                     changeType="positive"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
-                    name="Gas Saved"
-                    value="45k"
+                    name="Fix Coverage"
+                    value={stats.codeCoverage}
+                    icon={FileText}
+                    color="blue"
+                    changeType="positive"
+                    className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
+                />
+                <StatsCard
+                    name="Fixed"
+                    value={stats.fixedVulns.toString()}
                     icon={Zap}
                     color="purple"
-                    description="Wei"
+                    description="Vulnerabilities"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Audit Status"
-                    value="Passing"
+                    value={stats.auditStatus}
                     icon={CheckCircle}
                     color="emerald"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"

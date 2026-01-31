@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "../lib/utils";
-import { Activity, ShieldAlert, ShieldCheck, Scale, FileText } from "lucide-react";
+import { Activity, ShieldAlert, ShieldCheck, Scale, FileText, Search } from "lucide-react";
 
 const tabs = [
     {
@@ -35,6 +35,12 @@ const tabs = [
         href: "/audit",
         icon: FileText,
         color: "text-purple-500",
+    },
+    {
+        name: "Research",
+        href: "/research",
+        icon: Search,
+        color: "text-cyan-500",
     },
 ];
 

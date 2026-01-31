@@ -8,7 +8,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from src.api.routes import scan_router, status_router, reports_router, health_router, auth_router
+from src.api.routes import scan_router, status_router, reports_router, health_router, auth_router, research_router
 from src.api.middleware import LoggingMiddleware, RateLimitMiddleware
 
 # Configure logging
@@ -51,6 +51,7 @@ app.include_router(health_router)
 app.include_router(scan_router)
 app.include_router(status_router)
 app.include_router(reports_router)
+app.include_router(research_router)
 
 
 @app.on_event("startup")
@@ -66,6 +67,13 @@ async def startup_event():
     except Exception as e:
         logger.warning(f"Database initialization skipped: {e}")
     
+    # Clean up incomplete scans from previous sessions
+    try:
+        from src.api.utils.startup import cleanup_incomplete_scans
+        await cleanup_incomplete_scans()
+    except Exception as e:
+        logger.warning(f"Scan cleanup skipped: {e}")
+    
     logger.info("Ouroboros AI API ready to accept requests")
 
 
@@ -73,6 +81,14 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup resources on application shutdown."""
     logger.info("Ouroboros AI API shutting down...")
+    
+    # Shutdown scan executor gracefully
+    try:
+        from src.api.routes.scan import scan_executor
+        scan_executor.shutdown(wait=False, cancel_futures=True)
+        logger.info("Scan executor shutdown complete")
+    except Exception as e:
+        logger.warning(f"Scan executor shutdown skipped: {e}")
     
     # Close database connections (handled by SQLAlchemy engine pool)
     

@@ -107,6 +107,11 @@ async def login(
         expires_delta=access_token_expires,
     )
     
+    # Create refresh token
+    refresh_token_str = create_refresh_token(
+        data={"sub": user.user_id, "email": user.email},
+    )
+    
     # Determine if we should use secure cookies (only in production)
     use_secure_cookies = settings.environment == "production"
 
@@ -122,7 +127,7 @@ async def login(
     
     response.set_cookie(
         key="refresh_token",
-        value=refresh_token,
+        value=refresh_token_str,
         httponly=True,
         secure=use_secure_cookies,
         samesite="lax",
@@ -133,7 +138,7 @@ async def login(
     
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        refresh_token=refresh_token_str,
         expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
 

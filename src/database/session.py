@@ -20,7 +20,7 @@ engine = create_engine(
     settings.database_url,
     pool_size=settings.db_pool_size,
     max_overflow=settings.db_max_overflow,
-    echo=settings.debug  # Log SQL queries in debug mode
+    echo=False  # Log SQL queries in debug mode
 )
 
 # Create session factory

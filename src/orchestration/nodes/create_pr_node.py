@@ -28,7 +28,7 @@ async def create_pr_node(state: OuroborosState) -> OuroborosState:
 
 **Scan ID**: {state['scan_id']}
 **Repository**: {state['repo_url']}
-**Report**: {state.get('final_report_url', 'N/A')}
+**Report**: {state.get('final_report_url', 'Pending (Generated after PR)')}
 
 ### Summary
 - 🔍 Vulnerabilities found: {total_vulns}
@@ -46,16 +46,20 @@ async def create_pr_node(state: OuroborosState) -> OuroborosState:
         pr_description += "\n\n*This PR was automatically generated and verified by Ouroboros AI*"
         
         # Create PR
+        # Extract repo_full_name (owner/repo) from URL
+        repo_full_name = state["repo_url"].replace("https://github.com/", "").replace(".git", "")
+        
+        # Create PR
         pr_data = github_client.create_pull_request(
-            repo_url=state["repo_url"],
+            repo_full_name=repo_full_name,
             title=pr_title,
             body=pr_description,
-            branch=f"ouroboros-fixes-{state['scan_id']}",
-            base=state.get("branch", "main")
+            head_branch=f"ouroboros-fixes-{state['scan_id']}",
+            base_branch=state.get("branch", "main")
         )
         
-        state["pr_url"] = pr_data.get("url", "")
-        state["pr_number"] = pr_data.get("number", 0)
+        state["pr_url"] = pr_data.get("pr_url", "")
+        state["pr_number"] = pr_data.get("pr_number", 0)
         state["current_phase"] = "pr_created"
         
         logger.info(f"✅ PR created: {state.get('pr_url')}")

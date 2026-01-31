@@ -20,7 +20,12 @@ class OuroborosState(TypedDict):
     retry_count: int
     workflow_start_time: str
     workflow_end_time: Optional[str]
+    workflow_aborted: bool  # NEW: Tracks if workflow was aborted due to max retries
+    abort_reason: Optional[str]  # NEW: Reason for abort
     errors: List[str]
+    
+    # Infrastructure
+    sandbox_info: Optional[Dict[str, Any]]
     
     # Data artifacts
     vulnerabilities: List[Dict[str, Any]]

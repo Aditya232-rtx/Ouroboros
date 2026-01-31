@@ -6,9 +6,11 @@ from .blue_agent import BLUEAgent
 from .documentation_agent import DocumentationAgent
 from .governance_agent import GovernanceAgent
 from .audit_agent import AuditAgent
+from .research_agent import ResearchAgent
 
 __all__ = [
     "BaseAgent", "AgentInput", "AgentOutput",
     "REDAgent", "BLUEAgent", 
-    "DocumentationAgent", "GovernanceAgent", "AuditAgent"
+    "DocumentationAgent", "GovernanceAgent", "AuditAgent",
+    "ResearchAgent"
 ]

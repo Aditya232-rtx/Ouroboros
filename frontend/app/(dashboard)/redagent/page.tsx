@@ -1,72 +1,84 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import TerminalLog from "../../components/TerminalLog";
 import StatsCard from "../../components/StatsCard";
-import { fetchVulnerabilities } from "../../lib/api";
-import { Vulnerability, LogEntry } from "../../lib/types";
-import { ShieldAlert, Wrench, GitPullRequest, Timer, Target } from "lucide-react";
+import { fetchVulnerabilities, fetchLogs, fetchScanStatus, downloadReportPdf, downloadInitialReportPdf } from "../../lib/api";
+import { useScanLogs } from "../../hooks/useScanLogs";
+import { Vulnerability, LogEntry, ScanStatus } from "../../lib/types";
+import { ShieldAlert, Wrench, GitPullRequest, Timer, Download } from "lucide-react";
 
 export default function RedAgentPage() {
+    const searchParams = useSearchParams();
+    const scanId = searchParams.get("scanId") || searchParams.get("scan_id") || "latest";
+
     const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
+    // Use hook for robust log fetching
+    const { logs: allLogs } = useScanLogs(scanId);
 
-    // Mock Logs for Red Agent
-    const initialLogs: LogEntry[] = [
-        {
-            id: "1",
-            timestamp: "10:42:01",
-            level: "info",
-            source: "system",
-            message: "Initializing Red Team Protocol v1.4.2..."
-        },
-        {
-            id: "2",
-            timestamp: "10:42:02",
-            level: "info",
-            source: "system",
-            message: "Target: github.com/stripe/stripe-ios"
-        },
-        {
-            id: "3",
-            timestamp: "10:42:05",
-            level: "warning",
-            source: "red_agent",
-            message: "WARN: Potentially exposed .env file detected in commit history (SHA: 7a8b9c)."
-        },
-        {
-            id: "4",
-            timestamp: "10:42:08",
-            level: "info",
-            source: "red_agent",
-            message: "Scanning for SQL Injection vulnerabilities in /auth/login endpoint..."
-        },
-        {
-            id: "5",
-            timestamp: "10:42:09",
-            level: "debug",
-            source: "red_agent",
-            message: "> Payload: ' OR 1=1 --"
+    // Strict filtering for Red Agent logs only
+    const logs = allLogs.filter(l => l.source === "RED_AGENT");
+
+    const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
+    const [isDownloading, setIsDownloading] = useState(false);
+    const [stats, setStats] = useState({
+        vulnsFound: 0,
+        autoFixed: 0,
+        pullRequests: 0,
+        scanTime: "0m"
+    });
+
+    const handleDownloadReport = async () => {
+        setIsDownloading(true);
+        try {
+            await downloadInitialReportPdf(scanId);
+        } catch (error) {
+            console.error("Download failed:", error);
+            alert("Failed to download report. Please try again.");
+        } finally {
+            setIsDownloading(false);
         }
-    ];
-
-    const [logs, setLogs] = useState<LogEntry[]>(initialLogs);
+    };
 
     useEffect(() => {
-        fetchVulnerabilities("latest").then(setVulnerabilities);
+        const loadData = async () => {
+            try {
+                // Fetch vulnerabilities
+                const vulns = await fetchVulnerabilities(scanId);
+                // Keep existing if fetch fails/returns empty unexpectedly? 
+                // Vulns API returns [] on error. Let's trust it for now but maybe safeguard?
+                if (vulns) setVulnerabilities(vulns);
 
-        const interval = setInterval(() => {
-            const newLog: LogEntry = {
-                id: Date.now().toString(),
-                timestamp: new Date().toLocaleTimeString(),
-                level: Math.random() > 0.8 ? "error" : "info",
-                source: "red_agent",
-                message: Math.random() > 0.8 ? "CRITICAL: Stored XSS vulnerability found in POST /api/comments" : "Scanning for SQL Injection vulnerabilities in /auth/login endpoint..."
-            };
-            setLogs(prev => [...prev, newLog].slice(-50));
-        }, 3000);
+                // Logs are handled by useScanLogs hook now
+
+                // Fetch scan status
+                const status = await fetchScanStatus(scanId);
+                if (status) {
+                    setScanStatus(status);
+
+                    // Calculate stats ONLY if we have valid data
+                    const critical = vulns.filter(v => v.severity === "critical").length;
+                    const high = vulns.filter(v => v.severity === "high").length;
+                    setStats({
+                        vulnsFound: vulns.length,
+                        autoFixed: vulns.filter(v => v.status === "remediated").length,
+                        pullRequests: status?.status === "completed" ? 1 : 0,
+                        scanTime: status?.started_at ?
+                            `${Math.floor((Date.now() - new Date(status.started_at).getTime()) / 60000)}m` : "0m"
+                    });
+                }
+            } catch (error) {
+                console.error("Failed to load data:", error);
+                // Do NOT clear state on error
+            }
+        };
+
+        loadData();
+        const interval = setInterval(loadData, 5000); // Poll every 5 seconds
         return () => clearInterval(interval);
-    }, []);
+    }, [scanId]);
 
     const criticalCount = vulnerabilities.filter(v => v.severity === "critical").length;
 
@@ -80,10 +92,18 @@ export default function RedAgentPage() {
                         War Room
                     </h1>
                     <p className="text-slate-500 text-sm ml-6">
-                        Monitoring autonomous security agents on <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-xs">github.com/acme/api-gateway</span>
+                        Monitoring autonomous remediation agents on <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-xs">{scanStatus?.repo_url?.replace("https://github.com/", "") || "Loading..."}</span>
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
+                    <button
+                        className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center"
+                        onClick={handleDownloadReport}
+                        disabled={isDownloading}
+                    >
+                        <Download className="w-4 h-4 mr-2" />
+                        {isDownloading ? "Downloading..." : "Download Report"}
+                    </button>
                     <button className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors">
                         Pause Simulation
                     </button>
@@ -125,28 +145,28 @@ export default function RedAgentPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatsCard
                     name="Vulnerabilities Found"
-                    value="12"
+                    value={stats.vulnsFound.toString()}
                     icon={ShieldAlert}
                     color="red"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Auto-Fixed"
-                    value="8"
+                    value={stats.autoFixed.toString()}
                     icon={Wrench}
                     color="emerald"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Pull Requests"
-                    value="3"
+                    value={stats.pullRequests.toString()}
                     icon={GitPullRequest}
                     color="blue"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
-                    name="Uptime"
-                    value="42h 12m"
+                    name="Scan Time"
+                    value={stats.scanTime}
                     icon={Timer}
                     color="purple"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
