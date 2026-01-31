@@ -64,17 +64,60 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
         raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
     
     # Extract vulnerabilities from result
+    # Extract vulnerabilities from result or scan metadata
     vulnerabilities = []
+    
+    # Get metadata for governance info
+    metadata = scan_data.get("scan_metadata", {}) or {}
     result = scan_data.get("result") or {}
-    for vuln in result.get("vulnerabilities", []):
+    
+    # Build governance map for O(1) lookup
+    gov_map = {}
+    governance_queue = metadata.get("governance_queue", [])
+    
+    # If queue exists, use it to populate gov_map
+    for item in governance_queue:
+        v_id = item.get("vulnerability_id")
+        if v_id:
+            gov_map[v_id] = item
+
+    # Use result vulnerabilities if available (final state), otherwise check input vulnerabilities or metadata
+    # The scan result usually contains the final list.
+    raw_vulns = result.get("vulnerabilities", [])
+    
+    # If no result vulnerabilities (e.g. still running), try to use what we have in metadata from governance node
+    if not raw_vulns and governance_queue:
+        # Reconstruct vulnerabilities from the governance queue if original vuln is missing in result
+        raw_vulns = [item.get("original_vulnerability") for item in governance_queue if item.get("original_vulnerability")]
+
+    for vuln in raw_vulns:
+        v_id = vuln.get("id", "unknown")
+        gov_info = gov_map.get(v_id, {})
+        
+        # Determine status
+        # If accessing the governance page, items in the queue are typically "pending" approval unless processed
+        autonomy = gov_info.get("autonomy_level", "suggest")
+        status = "pending" # Default for visualization
+        
+        # Map autonomy to rule
+        rule = f"Risk Score > {gov_info.get('risk_score', 0)}"
+        
         vulnerabilities.append(VulnerabilitySummary(
-            id=vuln.get("id", "unknown"),
+            id=v_id,
             type=vuln.get("type", "unknown"),
-            severity=SeverityLevel(vuln.get("severity", "medium")),
+            severity=SeverityLevel(vuln.get("severity", "medium").lower()),
             file=vuln.get("location", {}).get("file", "unknown"),
             line=vuln.get("location", {}).get("line", 0),
             description=vuln.get("description", ""),
             confidence=vuln.get("confidence", 0.0),
+            cvss=vuln.get("cvss", 0.0) or (gov_info.get("risk_score", 0.0) / 10.0), # Fallback to normalized risk score
+            
+            # Governance fields
+            risk_score=gov_info.get("risk_score", 0.0),
+            priority=gov_info.get("priority", 0),
+            governance_status=status,
+            policy_rule=rule,
+            impact=gov_info.get("reasoning", "Pending evaluation")
         ))
     
     # Extract fixes from result

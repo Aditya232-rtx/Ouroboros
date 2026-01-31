@@ -58,16 +58,36 @@ export default function RedAgentPage() {
                 if (status) {
                     setScanStatus(status);
 
-                    // Calculate stats ONLY if we have valid data
-                    const critical = vulns.filter(v => v.severity === "critical").length;
-                    const high = vulns.filter(v => v.severity === "high").length;
-                    setStats({
-                        vulnsFound: vulns.length,
-                        autoFixed: vulns.filter(v => v.status === "remediated").length,
-                        pullRequests: status?.status === "completed" ? 1 : 0,
-                        scanTime: status?.started_at ?
-                            `${Math.floor((Date.now() - new Date(status.started_at).getTime()) / 60000)}m` : "0m"
-                    });
+                    // Fetch detailed data for accurate stats
+                    try {
+                        const detailRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000'}/status/${scanId}/detail`);
+                        const detailData = await detailRes.json();
+
+                        // Calculate scan time
+                        let scanTimeStr = "0m";
+                        if (status?.started_at) {
+                            const endTime = status?.completed_at ? new Date(status.completed_at).getTime() : Date.now();
+                            const startTime = new Date(status.started_at).getTime();
+                            const minutes = Math.floor((endTime - startTime) / 60000);
+                            scanTimeStr = `${minutes}m`;
+                        }
+
+                        setStats({
+                            vulnsFound: vulns.length,
+                            autoFixed: detailData.fixes?.length || 0,
+                            pullRequests: detailData.pr_url ? 1 : 0,
+                            scanTime: scanTimeStr
+                        });
+                    } catch (detailError) {
+                        console.error("Failed to fetch detail data, using fallback stats", detailError);
+                        // Fallback to basic stats
+                        setStats({
+                            vulnsFound: vulns.length,
+                            autoFixed: 0,
+                            pullRequests: 0,
+                            scanTime: "0m"
+                        });
+                    }
                 }
             } catch (error) {
                 console.error("Failed to load data:", error);

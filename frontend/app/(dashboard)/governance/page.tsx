@@ -1,13 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import StatsCard from "../../components/StatsCard";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import { Scale, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { Badge } from "../../components/lightswind/badge";
 import { Button } from "../../components/lightswind/button";
+import { useScanLogs } from "../../hooks/useScanLogs";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 interface RiskItem {
     id: string;
@@ -38,6 +39,7 @@ export default function GovernancePage() {
     const [agentStatus, setAgentStatus] = useState<"idle" | "scanning" | "verifying" | "patching">("idle");
     const [cycleCount, setCycleCount] = useState(0);
     const [repoUrl, setRepoUrl] = useState("");
+    const [scanId, setScanId] = useState<string | null>(null);
 
     // Get the current scan ID from localStorage
     const getScanId = () => {
@@ -46,6 +48,25 @@ export default function GovernancePage() {
         }
         return null;
     };
+
+    // Initialize scanId from localStorage
+    useEffect(() => {
+        const id = getScanId();
+        if (id && id !== scanId) {
+            setScanId(id);
+        } else if (!id && !scanId) {
+            // Fallback to "latest" if no scan ID in localStorage
+            setScanId("latest");
+        }
+    }, []);
+
+    // Use log streaming hook
+    const { logs } = useScanLogs(scanId, false);
+
+    // Filter logs for GOVERNANCE source only
+    const governanceLogs = useMemo(() => {
+        return logs.filter(log => log.source.toUpperCase().includes("GOVERNANCE"));
+    }, [logs]);
 
     // Fetch governance data
     const fetchGovernanceData = async () => {
@@ -169,73 +190,36 @@ export default function GovernancePage() {
                     </div>
                 </div>
 
-                {/* Right: Risk Queue (2 Cols) */}
-                <div className="lg:col-span-2 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-                    <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/20">
-                        <h3 className="font-bold text-slate-700 dark:text-slate-200 flex items-center">
-                            <Scale className="w-4 h-4 mr-2" />
-                            Risk Evaluation Queue ({riskQueue.length})
-                        </h3>
-                        <div className="flex items-center space-x-2 text-sm text-slate-500">
-                            <span>Sort by:</span>
-                            <select className="bg-transparent font-medium text-slate-700 dark:text-slate-300 outline-none">
-                                <option>Severity</option>
-                                <option>Time</option>
-                            </select>
+                {/* Right: Risk Queue and Logs (2 Cols) */}
+                <div className="lg:col-span-2 flex flex-col gap-4">
+                    {/* Governance Activity Log */}
+                    <div className="bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden shadow-sm">
+                        <div className="px-4 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
+                            <h3 className="font-bold text-slate-200 text-sm flex items-center">
+                                <div className="w-2 h-2 rounded-full bg-purple-500 mr-2 animate-pulse" />
+                                Governance Agent Activity
+                            </h3>
+                            <span className="text-xs text-slate-500 font-mono">{governanceLogs.length} events</span>
                         </div>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto">
-                        <table className="w-full text-left text-sm">
-                            <thead className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 font-medium border-b border-slate-100 dark:border-slate-800">
-                                <tr>
-                                    <th className="px-6 py-3">VULNERABILITY</th>
-                                    <th className="px-6 py-3">CVSS / IMPACT</th>
-                                    <th className="px-6 py-3">POLICY STATUS</th>
-                                    <th className="px-6 py-3 text-right">ACTION</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                {riskQueue.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={4} className="px-6 py-8 text-center text-slate-500">
-                                            No pending items in the risk queue
-                                        </td>
-                                    </tr>
-                                ) : (
-                                    riskQueue.map((item) => {
-                                        const colors = getSeverityColor(item.severity);
-                                        return (
-                                            <tr key={item.id} className="group hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
-                                                <td className="px-6 py-4">
-                                                    <div className="font-bold text-slate-900 dark:text-white">{item.title}</div>
-                                                    <div className="text-xs text-slate-500 font-mono mt-0.5">{item.location}</div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-center space-x-2">
-                                                        <Badge className={colors.badge}>{item.cvss.toFixed(1)}</Badge>
-                                                        <span className={`font-bold ${colors.text} text-xs`}>{item.severity}</span>
-                                                    </div>
-                                                    <div className="text-xs text-slate-400 mt-1">Business Impact: {item.impact}</div>
-                                                </td>
-                                                <td className="px-6 py-4">
-                                                    <div className="flex items-start space-x-2">
-                                                        <AlertCircle className="w-4 h-4 text-amber-500 mt-0.5" />
-                                                        <div>
-                                                            <span className="font-medium text-amber-600 text-xs block">Requires Approval</span>
-                                                            {item.rule && <span className="text-[10px] text-slate-400">Rule: {item.rule}</span>}
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-6 py-4 text-right">
-                                                    <Button variant="outline" size="sm">Review</Button>
-                                                </td>
-                                            </tr>
-                                        );
-                                    })
-                                )}
-                            </tbody>
-                        </table>
+                        <div className="h-96 overflow-y-auto font-mono text-xs">
+                            {governanceLogs.length === 0 ? (
+                                <div className="px-4 py-6 text-center text-slate-600">No governance activity yet...</div>
+                            ) : (
+                                governanceLogs.slice(-10).map((log) => (
+                                    <div key={log.id} className="px-4 py-1.5 hover:bg-slate-900/50 transition-colors flex items-start space-x-3">
+                                        <span className="text-slate-600 shrink-0">[{log.timestamp}]</span>
+                                        <span className={
+                                            log.level === "error" ? "text-red-400" :
+                                                log.level === "warning" ? "text-yellow-400" :
+                                                    log.level === "info" ? "text-emerald-400" :
+                                                        "text-slate-400"
+                                        }>[{log.level.toUpperCase()}]</span>
+                                        <span className="text-purple-400 font-semibold shrink-0">{log.source}:</span>
+                                        <span className="text-slate-300 flex-1">{log.message}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>

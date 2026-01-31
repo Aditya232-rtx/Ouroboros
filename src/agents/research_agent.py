@@ -15,9 +15,9 @@ from pathlib import Path
 from src.agents.base_agent import BaseAgent, AgentInput, AgentOutput
 from src.tools.brave_mcp_client import BraveSearchClient, BraveSearchResult
 
-# Direct Ollama import for phi3.5-mini
-from langchain_ollama import ChatOllama
-import os
+# Direct Ollama import via model loader
+# from langchain_ollama import ChatOllama
+# import os
 
 logger = logging.getLogger(__name__)
 
@@ -71,13 +71,10 @@ class ResearchAgent(BaseAgent):
         Args:
             brave_client: Brave Search MCP client (optional, will create if not provided)
         """
-        # Initialize Ollama phi3.5-mini model directly
-        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        model = ChatOllama(
-            base_url=ollama_url,
-            model="phi3.5",
-            temperature=0.2  # Low temperature for more focused research
-        )
+        # Initialize shared model via registry
+        from src.models import get_model
+        model = get_model("research")
+        
         super().__init__(model=model, agent_id="RESEARCH")
         
         self.brave_client = brave_client or BraveSearchClient()

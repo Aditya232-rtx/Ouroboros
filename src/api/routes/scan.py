@@ -187,6 +187,7 @@ def get_scan_data(scan_id: str) -> dict:
             "completed_at": scan.completed_at,
             "error_message": scan.error_message,
             "result": meta.get("result"),
+            "scan_metadata": meta, # <--- Added this
             "pr_url": scan.pr_url,
             "logs": logs_list
         }

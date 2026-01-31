@@ -66,6 +66,14 @@ class VulnerabilitySummary(BaseModel):
     line: int
     description: str
     confidence: float
+    cvss: float = 0.0
+    
+    # Governance Fields
+    risk_score: float = 0.0
+    priority: int = 0
+    governance_status: str = "pending"
+    policy_rule: Optional[str] = None
+    impact: Optional[str] = None
 
 
 class FixSummary(BaseModel):
@@ -85,7 +93,7 @@ class ScanStatusResponse(BaseModel):
     current_phase: str
     vulnerabilities_found: int
     fixes_applied: int
-    started_at: datetime
+    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
 

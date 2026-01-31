@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     
     # Redis
-    redis_url: str = "redis://:redis@localhost:6379/0"
+    redis_url: str = "redis://localhost:6379/0"
     redis_cache_ttl: int = 3600
 
     # GitHub Integration
