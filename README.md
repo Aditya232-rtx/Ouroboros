@@ -10,32 +10,41 @@
 
 ## 🚀 SDK Quick Start
 
-### One-command install
+### One-command install (recommended)
 
 ```bash
-# Windows:
-install.bat
+# 1. Clone the repo
+git clone https://github.com/Aditya232-rtx/Ouroboros.git
+cd Ouroboros
 
-# macOS/Linux:
-./install.sh
-
-# Or manually:
-pip install ouroboros_sdk-1.1.0-py3-none-any.whl
-ouroboros info
+# 2. Run the installer:
+#    Windows  →  install.bat
+#    macOS/Linux  →  ./install.sh
 ```
 
-> **Windows users:** If `python` opens the Microsoft Store, the install script
-> auto-detects a real Python 3.11+ via the `py` launcher or common install paths.
-
-### From source (developers)
+### Manual install
 
 ```bash
-# Option A — pip (no Poetry needed)
-pip install .
+# Create a venv and install (works on any OS)
+python -m venv venv
 
-# Option B — Poetry
-pip install poetry && poetry install && poetry build
-pip install dist/ouroboros_sdk-1.1.0-py3-none-any.whl
+# Activate:
+#   Windows:    venv\Scripts\activate
+#   macOS/Linux: source venv/bin/activate
+
+pip install .            # installs SDK + all dependencies from source
+ouroboros info           # verify it works
+```
+
+> **Windows users:** If `python` opens the Microsoft Store instead of Python,
+> use `py -3` instead, or run `install.bat` which auto-detects the correct path.
+
+### Build wheel (optional — for distributing to other machines)
+
+```bash
+pip install poetry && poetry build
+# Then copy dist/ouroboros_sdk-1.1.0-py3-none-any.whl to the target machine:
+pip install ouroboros_sdk-1.1.0-py3-none-any.whl
 ```
 
 ### Configure & run
