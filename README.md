@@ -1,6 +1,6 @@
 # 🔒 Ouroboros AI — Autonomous Security System & SDK
 
-**Version:** 1.0.0  
+**Version:** 1.1.0  
 **Status:** Production
 
 > **Any GitHub repo → vulnerability scan → automated fixes → GitHub PR → PDF report**
@@ -10,17 +10,46 @@
 
 ## 🚀 SDK Quick Start
 
-```bash
-# 1. Install (from source)
-pip install poetry && poetry install && poetry build
-pip install dist/ouroboros_sdk-1.0.0-py3-none-any.whl
+### One-command install
 
-# 2. Configure (add your GitHub token)
+```bash
+# Windows:
+install.bat
+
+# macOS/Linux:
+./install.sh
+
+# Or manually:
+pip install ouroboros_sdk-1.1.0-py3-none-any.whl
+ouroboros info
+```
+
+> **Windows users:** If `python` opens the Microsoft Store, the install script
+> auto-detects a real Python 3.11+ via the `py` launcher or common install paths.
+
+### From source (developers)
+
+```bash
+# Option A — pip (no Poetry needed)
+pip install .
+
+# Option B — Poetry
+pip install poetry && poetry install && poetry build
+pip install dist/ouroboros_sdk-1.1.0-py3-none-any.whl
+```
+
+### Configure & run
+
+```bash
+# 1. Configure (add your GitHub token)
 cp config.example.yaml config.yaml
 nano config.yaml          # paste token on line 8
 
-# 3. Scan any repo
+# 2. Scan any repo
 ouroboros scan --repo https://github.com/your-org/your-app
+
+# Alternative: run via python -m (if ouroboros isn't on PATH)
+python -m ouroboros scan --repo https://github.com/your-org/your-app
 ```
 
 **That's it.** Ouroboros will:
@@ -150,8 +179,8 @@ ouroboros/
 
 1. **Clone Repository**
    ```bash
-   git clone https://github.com/your-org/ouroboros.git
-   cd ouroboros
+   git clone https://github.com/Aditya232-rtx/Ouroboros.git
+   cd Ouroboros
    ```
 
 2. **Create Virtual Environment**
@@ -299,7 +328,7 @@ This is a private/internal project. Contact the security team for contribution g
 
 ## License
 
-Proprietary - Internal use only
+Apache-2.0 — See [LICENSE](LICENSE) for details.
 
 ## Contact
 
