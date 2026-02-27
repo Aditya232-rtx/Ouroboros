@@ -6,6 +6,7 @@ Orchestration node for RED agent verification
 import logging
 from typing import Dict, Any
 from src.orchestration.state import OuroborosState
+from src.orchestration.edges.verification_router import MAX_RETRIES
 from src.verification.verification_engine import VerificationEngine
 from src.tools.docker_sandbox import docker_sandbox
 
@@ -19,10 +20,10 @@ async def red_verify_node(state: OuroborosState) -> OuroborosState:
     not the original vulnerable code. This verifies the fix actually works.
     
     Per 03_CRITICAL_DO_NOT: Must run in Docker sandbox
-    Per USER REQUIREMENT: Max 3 retries, then abort
+    Per USER REQUIREMENT: Max retries then abort
     """
     retry_attempt = state.get("retry_count", 0)
-    logger.info(f"🔴 RED Verification starting (attempt {retry_attempt + 1}/3)...")
+    logger.info(f"🔴 RED Verification starting (attempt {retry_attempt + 1}/{MAX_RETRIES + 1})...")
     logger.info("   ⚠️  Testing FIXED code instances (where BLUE made changes)")
     
     engine = VerificationEngine()

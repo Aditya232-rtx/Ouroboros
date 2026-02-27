@@ -4,7 +4,9 @@ Ouroboros AI - Global Settings
 
 from typing import Dict
 from pathlib import Path
+from datetime import timezone, datetime
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import model_validator
 
 class Settings(BaseSettings):
     """Global application settings"""
@@ -16,7 +18,7 @@ class Settings(BaseSettings):
     # Application
     app_version: str = "1.0.0"
     environment: str = "development"
-    debug: bool = True
+    debug: bool = False
     
     # Logging
     log_level: str = "INFO"
@@ -30,7 +32,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     
     # Redis
-    redis_url: str = "redis://:redis@localhost:6379/0"
+    redis_url: str = "redis://localhost:6379/0"
     redis_cache_ttl: int = 3600
 
     # GitHub Integration
@@ -56,7 +58,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     
     # Security
-    secret_key: str = "your-secret-key-change-in-production"
+    secret_key: str = ""
+    jwt_secret_key: str = ""  # Alias resolved from secret_key
     jwt_algorithm: str = "HS256"
     jwt_expiration: int = 3600
     
@@ -67,12 +70,42 @@ class Settings(BaseSettings):
     n_threads: int = 8
 
     # API
-    api_host: str = "0.0.0.0"
+    api_host: str = "127.0.0.1"
     api_port: int = 8000
     api_reload: bool = True
     api_keys: Dict[str, str] = {}
     
     # Paths
     semgrep_rules: str = "p/security-audit"
+
+    @model_validator(mode="after")
+    def validate_critical_settings(self):
+        """Validate that critical settings are not defaults."""
+        insecure_secrets = [
+            "your-secret-key-change-in-production",
+            "dev-secret-key-change-in-production",
+            "",
+        ]
+        if self.secret_key in insecure_secrets:
+            if self.environment == "production":
+                raise ValueError(
+                    "SECRET_KEY must be set to a secure random value in production! "
+                    "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(64))'"
+                )
+            else:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "⚠️  SECRET_KEY is not set — using insecure default for development only!"
+                )
+                self.secret_key = "dev-only-insecure-key-do-not-use-in-production"
+        
+        # Sync jwt_secret_key from secret_key
+        if not self.jwt_secret_key:
+            self.jwt_secret_key = self.secret_key
+        
+        if self.immudb_password == "immudb" and self.environment == "production":
+            raise ValueError("IMMUDB_PASSWORD must be changed from default in production!")
+
+        return self
     
 settings = Settings()

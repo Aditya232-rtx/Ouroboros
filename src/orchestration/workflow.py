@@ -10,6 +10,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
 from src.orchestration.state import OuroborosState
+from src.orchestration.edges.verification_router import MAX_RETRIES
 from src.agents import (
     REDAgent,
     BLUEAgent,
@@ -141,9 +142,9 @@ class OuroborosWorkflow:
             new_retries = current_retries + 1
             state["retry_count"] = new_retries
             
-            if new_retries > 3: # Hardcoded MAX_RETRIES for now to match router
+            if new_retries > MAX_RETRIES:
                  state["workflow_aborted"] = True
-                 state["abort_reason"] = f"Max verification retries (3) exceeded"
+                 state["abort_reason"] = f"Max verification retries ({MAX_RETRIES}) exceeded"
                  logger.error("   ❌ Max retries reached - flagging for abort in router")
             else:
                  logger.info(f"   ⚠️  Verification failed (Attempt {new_retries})")

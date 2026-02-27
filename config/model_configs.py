@@ -62,11 +62,16 @@ SUPPORT_AGENT_CONFIG = ModelConfig(
     repeat_penalty=1.05
 )
 
+# RESEARCH AGENT CONFIG
+# Uses same robust model as other support agents
+RESEARCH_AGENT_CONFIG = SUPPORT_AGENT_CONFIG
+
 # Model registry
 MODEL_REGISTRY = {
     "red": RED_AGENT_CONFIG,
     "blue": BLUE_AGENT_CONFIG,
     "governance": SUPPORT_AGENT_CONFIG,
     "documentation": SUPPORT_AGENT_CONFIG,
-    "audit": SUPPORT_AGENT_CONFIG
+    "audit": SUPPORT_AGENT_CONFIG,
+    "research": RESEARCH_AGENT_CONFIG
 }

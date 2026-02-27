@@ -24,7 +24,7 @@ class EvasionTools:
             path = Path("src/resources/agents/red_agent/prompts/blue_team_agent.md")
             if path.exists():
                 return path.read_text()
-        except: pass
+        except OSError: pass
         return "You are an expert Blue Team analyst. detection logic and SIEM rules."
 
     async def check_stealth(self, plan: Dict, llm_callable) -> Dict:

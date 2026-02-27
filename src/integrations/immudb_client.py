@@ -5,9 +5,10 @@ Immutable audit logging for compliance
 
 import logging
 import hashlib
+import hmac
 import json
 from typing import Dict, Any, List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +27,9 @@ class ImmudbClient:
         host: str = "localhost",
         port: int = 3322,
         username: str = "immudb",
-        password: str = "immudb",
-        database: str = "ouroboros_audit"
+        password: str = "",
+        database: str = "ouroboros_audit",
+        signing_key: str = ""
     ):
         """Initialize immudb client"""
         self.host = host
@@ -35,12 +37,17 @@ class ImmudbClient:
         self.username = username
         self.password = password
         self.database = database
+        self.signing_key = signing_key
         self.connected = False
+        self.client = None
         
         # In-memory fallback for development (no immudb installed)
         self.events = []
         
         logger.info(f"immudb client initialized (host={host}, port={port})")
+        
+        # Auto-connect on init
+        self.connect()
     
     def connect(self):
         """
@@ -91,7 +98,7 @@ class ImmudbClient:
         Returns:
             Event ID (hash)
         """
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = datetime.now(timezone.utc).isoformat()
         
         event = {
             "event_id": self._generate_event_id(event_type, entity_id, timestamp),
@@ -132,9 +139,7 @@ class ImmudbClient:
         details: Dict[str, Any]
     ) -> str:
         """
-        Create digital signature for event.
-        
-        In production, use HMAC-SHA256 with secret key.
+        Create digital signature for event using HMAC-SHA256.
         """
         data = json.dumps({
             "type": event_type,
@@ -142,7 +147,8 @@ class ImmudbClient:
             "details": details
         }, sort_keys=True)
         
-        return hashlib.sha256(data.encode()).hexdigest()
+        key = self.signing_key.encode() if self.signing_key else b"ouroboros-default-key"
+        return hmac.new(key, data.encode(), hashlib.sha256).hexdigest()
     
     def _store_event(self, event: Dict[str, Any]) -> str:
         """
@@ -174,16 +180,30 @@ class ImmudbClient:
         limit: int = 100
     ) -> List[Dict[str, Any]]:
         """
-        Retrieve audit trail.
-        
-        Args:
-            entity_id: Filter by entity ID
-            event_type: Filter by event type
-            limit: Max number of events to return
-            
-        Returns:
-            List of audit events
+        Retrieve audit trail from immudb or in-memory fallback.
         """
+        # Try immudb first if connected
+        if self.connected and self.client is not None:
+            try:
+                # Use immudb scan to retrieve events
+                # Note: This is simplified — production would use SQL queries via immudb
+                result = self.client.scan(b"", b"", False, limit)
+                events = []
+                for item in result:
+                    try:
+                        event = json.loads(item.value.decode())
+                        if entity_id and event.get("entity_id") != entity_id:
+                            continue
+                        if event_type and event.get("event_type") != event_type:
+                            continue
+                        events.append(event)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                return events[:limit]
+            except Exception as e:
+                logger.warning(f"Failed to query immudb, falling back to in-memory: {e}")
+        
+        # Fallback to in-memory
         filtered_events = self.events
         
         if entity_id:
@@ -269,5 +289,19 @@ class ImmudbClient:
         return mappings.get(event_type, {})
 
 
-# Global immudb client instance
-immudb_client = ImmudbClient()
+# Global immudb client instance (uses settings for config)
+def _create_immudb_client() -> ImmudbClient:
+    """Create immudb client with settings from config."""
+    try:
+        from config.settings import settings
+        return ImmudbClient(
+            host=getattr(settings, 'immudb_host', 'localhost'),
+            port=getattr(settings, 'immudb_port', 3322),
+            password=getattr(settings, 'immudb_password', ''),
+            signing_key=getattr(settings, 'secret_key', ''),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to create immudb client with settings: {e}")
+        return ImmudbClient()
+
+immudb_client = _create_immudb_client()

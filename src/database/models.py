@@ -3,7 +3,7 @@ Ouroboros AI - Database Models
 SQLAlchemy models for PostgreSQL persistence
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import (
     Column, Integer, String, Text, Float, DateTime, Boolean,
     ForeignKey, JSON, Enum as SQLEnum
@@ -13,6 +13,11 @@ from sqlalchemy.orm import relationship
 import enum
 
 Base = declarative_base()
+
+
+def _utc_now() -> datetime:
+    """Timezone-aware UTC now for SQLAlchemy column defaults."""
+    return datetime.now(timezone.utc)
 
 
 class ScanStatus(enum.Enum):
@@ -40,7 +45,7 @@ class Scan(Base):
     scan_profile = Column(String(50), default="standard")
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
     started_at = Column(DateTime)
     completed_at = Column(DateTime)
     
@@ -108,7 +113,7 @@ class Vulnerability(Base):
     verified = Column(Boolean, default=False)
     
     # Timestamps
-    discovered_at = Column(DateTime, default=datetime.utcnow)
+    discovered_at = Column(DateTime, default=_utc_now)
     
     # Relationships
     scan = relationship("Scan", back_populates="vulnerabilities")
@@ -151,7 +156,7 @@ class Fix(Base):
     applied = Column(Boolean, default=False)
     
     # Timestamps
-    generated_at = Column(DateTime, default=datetime.utcnow)
+    generated_at = Column(DateTime, default=_utc_now)
     verified_at = Column(DateTime)
     
     # Relationships
@@ -170,7 +175,7 @@ class AuditEvent(Base):
     # Event details
     event_type = Column(String(100), nullable=False)
     entity_id = Column(String(100))  # RED-xxx, BLUE-xxx, etc.
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime, default=_utc_now, nullable=False)
     
     # Event data
     details = Column(JSON)
@@ -191,7 +196,7 @@ class ScanLog(Base):
     scan_id = Column(Integer, ForeignKey("scans.id"), nullable=False)
     
     # Log details
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=_utc_now)
     level = Column(String(20), default="INFO")
     source = Column(String(100), default="SYSTEM")
     message = Column(Text)
@@ -212,6 +217,6 @@ class User(Base):
     is_active = Column(Boolean, default=True)
     
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=_utc_now)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now)
 

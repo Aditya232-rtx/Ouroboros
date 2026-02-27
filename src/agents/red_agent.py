@@ -489,7 +489,7 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
                          # Try to parse the extracted block
                         try:
                             data = json.loads(json_match.group(1))
-                        except:
+                        except (json.JSONDecodeError, ValueError):
                             # If that fails, try the base parser
                             data = self._parse_json_response(response)
                     else:

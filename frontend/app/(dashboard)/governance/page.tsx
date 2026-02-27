@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import StatsCard from "../../components/StatsCard";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import { Scale, AlertCircle, CheckCircle, Clock } from "lucide-react";
 import { Badge } from "../../components/lightswind/badge";
 import { Button } from "../../components/lightswind/button";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_URL = "/api/proxy";
 
 interface RiskItem {
     id: string;
@@ -28,6 +29,9 @@ interface GovernanceStats {
 }
 
 export default function GovernancePage() {
+    const searchParams = useSearchParams();
+    const scanId = searchParams.get("scan_id") || "latest";
+
     const [riskQueue, setRiskQueue] = useState<RiskItem[]>([]);
     const [stats, setStats] = useState<GovernanceStats>({
         pendingApprovals: 0,
@@ -39,26 +43,15 @@ export default function GovernancePage() {
     const [cycleCount, setCycleCount] = useState(0);
     const [repoUrl, setRepoUrl] = useState("");
 
-    // Get the current scan ID from localStorage
-    const getScanId = () => {
-        if (typeof window !== "undefined") {
-            return localStorage.getItem("currentScanId");
-        }
-        return null;
-    };
-
     // Fetch governance data
     const fetchGovernanceData = async () => {
-        const scanId = getScanId();
-        if (!scanId) return;
-
         try {
             // Fetch scan status for agent state
             const statusRes = await fetch(`${API_URL}/status/${scanId}`);
             if (statusRes.ok) {
                 const statusData = await statusRes.json();
                 setRepoUrl(statusData.repo_url || "");
-
+                
                 // Map scan status to agent status
                 const statusMap: Record<string, "idle" | "scanning" | "verifying" | "patching"> = {
                     "pending": "idle",
@@ -75,7 +68,7 @@ export default function GovernancePage() {
             if (vulnRes.ok) {
                 const vulnData = await vulnRes.json();
                 const vulnerabilities = vulnData.vulnerabilities || [];
-
+                
                 // Convert vulnerabilities to risk items
                 const riskItems: RiskItem[] = vulnerabilities.map((v: any, idx: number) => ({
                     id: v.id || `vuln-${idx}`,
@@ -87,27 +80,26 @@ export default function GovernancePage() {
                     status: v.governance_status || "pending",
                     rule: v.policy_rule
                 }));
-
+                
                 // Filter to show only pending items in queue
                 const pendingItems = riskItems.filter(r => r.status === "pending");
                 setRiskQueue(pendingItems);
-
+                
                 // Calculate stats
                 const approved = riskItems.filter(r => r.status === "approved").length;
                 const violations = riskItems.filter(r => r.severity === "CRITICAL" || r.severity === "HIGH").length;
-
+                
                 setStats({
                     pendingApprovals: pendingItems.length,
                     autoMerged: approved,
                     policyViolations: violations,
                     avgTimeToFix: vulnData.avg_fix_time || "0m"
                 });
-
+                
                 setCycleCount(vulnData.governance_cycles || Math.floor(Math.random() * 100) + 1);
             }
         } catch (error) {
             console.error("Error fetching governance data:", error);
-            // Ignore error to keep stale state
         }
     };
 
@@ -115,7 +107,7 @@ export default function GovernancePage() {
         fetchGovernanceData();
         const interval = setInterval(fetchGovernanceData, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [scanId]);
 
     const getSeverityColor = (severity: string) => {
         switch (severity) {

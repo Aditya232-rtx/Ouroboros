@@ -193,6 +193,49 @@ class BaseAgent(ABC):
                 return json.loads(text)
                 
         except json.JSONDecodeError as e:
+            # Common Error 3: Truncated JSON from small LLMs
+            # Try to salvage by closing open brackets/braces
+            try:
+                salvaged = self._salvage_truncated_json(text)
+                if salvaged is not None:
+                    self.logger.warning(f"{self.agent_id}: Salvaged truncated JSON response")
+                    return salvaged
+            except Exception:
+                pass
             self.logger.error(f"{self.agent_id}: Failed to parse JSON: {e}")
-            self.logger.error(f"Raw response: {response}")
+            self.logger.error(f"Raw response: {response[:500]}")
             raise ValueError(f"Invalid JSON response from LLM: {e}")
+
+    def _salvage_truncated_json(self, text: str) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to recover a truncated JSON response from a small LLM.
+        
+        Strategy: find the last complete object in a vulnerabilities array,
+        then close the array and outer object.
+        """
+        import re
+
+        # Find the last complete JSON object boundary (closing brace)
+        # Walk backwards to find a valid cut point
+        last_brace = text.rfind("}")
+        if last_brace < 0:
+            return None
+
+        # Try progressively shorter substrings ending at each '}'
+        pos = last_brace
+        while pos > 0:
+            candidate = text[:pos + 1]
+            # Count open vs close braces/brackets
+            open_braces = candidate.count("{") - candidate.count("}")
+            open_brackets = candidate.count("[") - candidate.count("]")
+            # Close any remaining open brackets/braces
+            suffix = "]" * open_brackets + "}" * open_braces
+            try:
+                result = json.loads(candidate + suffix)
+                return result
+            except json.JSONDecodeError:
+                pass
+            # Try the previous '}'
+            pos = text.rfind("}", 0, pos)
+
+        return None

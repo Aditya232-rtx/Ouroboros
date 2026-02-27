@@ -85,7 +85,7 @@ class SafetyGates:
         
         # Gate 3: Backward Compatibility
         self.logger.info("Running Gate 3: Backward Compatibility")
-        gate3 = await self.gate_3_backward_compatibility(test_code)
+        gate3 = await self.gate_3_backward_compatibility(test_code, fixed_code)
         results.append(gate3)
         
         # Gate 4: Performance
@@ -98,8 +98,8 @@ class SafetyGates:
         # gate5 = await self.gate_5_test_coverage(fixed_code, test_code, language)
         # results.append(gate5)
         
-        # Check if all passed
-        all_passed = all(r.status == GateStatus.PASSED for r in results)
+        # Check if all passed (SKIPPED gates are acceptable — e.g. no test code)
+        all_passed = all(r.status in (GateStatus.PASSED, GateStatus.SKIPPED) for r in results)
         
         if all_passed:
             self.logger.info("✅ All 4 safety gates PASSED")
@@ -119,19 +119,22 @@ class SafetyGates:
         - No os.system()
         - Input validation patterns present
         """
-        dangerous_patterns = [
-            "eval(",
-            "exec(",
-            "__import__(",
-            "shell=True",
-            "os.system(",
-        ]
+        import re as _re
+        # Use regex word-boundary checks to avoid false positives
+        # e.g. "exec(" must NOT match inside "execute(" or "executor("
+        dangerous_patterns = {
+            "eval(": r'(?<!\w)eval\s*\(',
+            "exec(": r'(?<!\w)exec\s*\(',
+            "__import__(": r'__import__\s*\(',
+            "shell=True": r'shell\s*=\s*True',
+            "os.system(": r'os\.system\s*\(',
+        }
         
         # Check for dangerous patterns
         found_dangerous = []
-        for pattern in dangerous_patterns:
-            if pattern in code:
-                found_dangerous.append(pattern)
+        for label, pattern in dangerous_patterns.items():
+            if _re.search(pattern, code):
+                found_dangerous.append(label)
         
         if found_dangerous:
             return GateResult(
@@ -228,19 +231,33 @@ class SafetyGates:
             original_findings = run_semgrep(original_file)
             fixed_findings = run_semgrep(fixed_file)
             
-            # If Semgrep is not available, fall back to pattern matching
+            # If Semgrep is not available, fall back to regex pattern matching
             if original_findings is None or fixed_findings is None:
+                import re as _re2
                 vuln_patterns = {
-                    "sql_injection": ["+ user_id", "+ username", "% user"],
-                    "command_injection": ["subprocess.call(", "os.system(", "shell=True"],
-                    "xss": ["innerHTML =", "document.write("],
+                    "sql_injection": [
+                        (r'["\'].*?\+\s*user_id', "string concat with user_id"),
+                        (r'["\'].*?\+\s*username', "string concat with username"),
+                        (r'%\s*\(?\s*user', "% formatting with user input"),
+                    ],
+                    "command_injection": [
+                        (r'subprocess\.call\s*\(', "subprocess.call()"),
+                        (r'os\.system\s*\(', "os.system()"),
+                        (r'shell\s*=\s*True', "shell=True"),
+                    ],
+                    "xss": [
+                        (r'\.innerHTML\s*=', "innerHTML assignment"),
+                        (r'document\.write\s*\(', "document.write()"),
+                    ],
                 }
                 
                 new_vulns = []
                 for vuln_type, patterns in vuln_patterns.items():
-                    for pattern in patterns:
-                        if pattern in fixed_code and pattern not in original_code:
-                            new_vulns.append(f"{vuln_type}: {pattern}")
+                    for regex, label in patterns:
+                        in_fixed = bool(_re2.search(regex, fixed_code))
+                        in_original = bool(_re2.search(regex, original_code))
+                        if in_fixed and not in_original:
+                            new_vulns.append(f"{vuln_type}: {label}")
                 
                 if new_vulns:
                     return GateResult(
@@ -349,11 +366,11 @@ class SafetyGates:
                 total = passed + failed if (passed + failed) > 0 else 1
                 
                 if result.returncode != 0:
-                    self.logger.warning(f"Backward compatibility tests passed with issues: {failed}/{total} tests failed. Proceeding with caution.")
+                    self.logger.warning(f"Backward compatibility tests FAILED: {failed}/{total} tests failed.")
                     return GateResult(
                         gate_name="Backward Compatibility",
-                        status=GateStatus.PASSED, # Relaxed for prototype
-                        reason=f"Tests executed (failures noted: {failed}/{total})",
+                        status=GateStatus.FAILED,
+                        reason=f"Tests failed: {failed}/{total} (exit code {result.returncode})",
                         details={
                             "passed": passed,
                             "failed": failed,
@@ -417,18 +434,20 @@ class SafetyGates:
         # Check if fix introduces obvious performance issues
         performance_concerns = []
         
-        # Check for nested loops added
-        original_loops = original_code.count("for ") + original_code.count("while ")
-        fixed_loops = fixed_code.count("for ") + fixed_code.count("while ")
+        # Check for nested loops added (regex to match actual loop statements, not strings)
+        import re as _re4
+        loop_pattern = r'^\s*(?:for|while)\s+'
+        original_loops = len(_re4.findall(loop_pattern, original_code, _re4.MULTILINE))
+        fixed_loops = len(_re4.findall(loop_pattern, fixed_code, _re4.MULTILINE))
         
         if fixed_loops > original_loops + 2:
             performance_concerns.append(f"Added {fixed_loops - original_loops} loops")
         
-        # Check for database queries added
-        db_queries_added = (
-            fixed_code.count("SELECT") - original_code.count("SELECT") +
-            fixed_code.count("execute(") - original_code.count("execute(")
-        )
+        # Check for new SQL queries (don't count execute() — it's the safe query mechanism)
+        sql_pattern = r'\b(?:SELECT|INSERT|UPDATE|DELETE)\b'
+        original_queries = len(_re4.findall(sql_pattern, original_code, _re4.IGNORECASE))
+        fixed_queries = len(_re4.findall(sql_pattern, fixed_code, _re4.IGNORECASE))
+        db_queries_added = fixed_queries - original_queries
         
         if db_queries_added > 2:
             performance_concerns.append(f"Added {db_queries_added} database queries")
@@ -633,8 +652,15 @@ def _validate_dockerfile_impl(fixed_code: str) -> Dict[str, Any]:
     lines = fixed_code.upper().split('\n')
     code_lower = fixed_code.lower()
     
-    # Check 1: USER instruction present (non-root)
-    has_user = any('USER' in line and 'ROOT' not in line for line in lines if line.strip().startswith('USER'))
+    # Check 1: USER instruction present (non-root, non-UID-0)
+    def _is_nonroot_user(line):
+        parts = line.strip().split()
+        if len(parts) < 2:
+            return False
+        user_val = parts[1].split(':')[0]  # Handle USER uid:gid format
+        return user_val != 'ROOT' and user_val != '0'
+    
+    has_user = any(_is_nonroot_user(line) for line in lines if line.strip().startswith('USER'))
     if has_user:
         checks.append("USER instruction present (non-root)")
     else:
@@ -671,8 +697,9 @@ def _validate_dockerfile_impl(fixed_code: str) -> Dict[str, Any]:
             issues.append("Base image should use pinned version, not :latest")
     
     # Determine overall pass/fail
-    # Pass if at least 2 security checks are present
-    passed = len(checks) >= 2 or (len(issues) == 0)
+    # Require USER instruction (critical) plus at least one other check, or zero issues
+    has_user_check = any('USER' in c for c in checks)
+    passed = (has_user_check and len(checks) >= 2) or (len(issues) == 0)
     
     return {
         "passed": passed,

@@ -25,21 +25,32 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     
     # Rate limits: (requests, window_seconds)
-    # TEMPORARY: Increased for testing - reduce in production
-    AUTHENTICATED_LIMIT: Tuple[int, int] = (1000, 60)  # 1000 req/min
-    UNAUTHENTICATED_LIMIT: Tuple[int, int] = (1000, 60)  # 1000 req/min - Increased for dev
+    AUTHENTICATED_LIMIT: Tuple[int, int] = (100, 60)  # 100 req/min
+    UNAUTHENTICATED_LIMIT: Tuple[int, int] = (20, 60)  # 20 req/min
     
     def __init__(self, app):
         super().__init__(app)
         # Track requests: {identifier: [(timestamp, count)]}
         self._request_counts: Dict[str, list] = defaultdict(list)
     
+    # Paths exempt from rate limiting (read-only monitoring endpoints)
+    EXEMPT_PREFIXES = ("/status/", "/health", "/ready", "/live")
+    
     async def dispatch(self, request: Request, call_next):
+        # Exempt monitoring/polling endpoints from rate limiting
+        path = request.url.path
+        if any(path.startswith(prefix) for prefix in self.EXEMPT_PREFIXES):
+            return await call_next(request)
+        
         # Get identifier (API key or IP)
         identifier = request.headers.get("X-API-Key") or (request.client.host if request.client else "unknown_client")
         
         # Determine limit based on authentication
-        if request.headers.get("X-API-Key"):
+        # Check both API key and cookie-based auth
+        has_api_key = bool(request.headers.get("X-API-Key"))
+        has_cookie_auth = bool(request.cookies.get("access_token"))
+        
+        if has_api_key or has_cookie_auth:
             max_requests, window = self.AUTHENTICATED_LIMIT
         else:
             max_requests, window = self.UNAUTHENTICATED_LIMIT
@@ -81,3 +92,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     def _record_request(self, identifier: str):
         """Record a request for rate limiting."""
         self._request_counts[identifier].append(time.time())
+        
+        # Periodic cleanup: if more than 1000 identifiers tracked, prune stale
+        if len(self._request_counts) > 1000:
+            now = time.time()
+            stale = [k for k, v in self._request_counts.items() if not v or v[-1] < now - 120]
+            for k in stale:
+                del self._request_counts[k]

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # PostgreSQL - Primary database
   postgres:
@@ -10,7 +8,7 @@ services:
       POSTGRES_USER: ouroboros_user
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -27,11 +25,11 @@ services:
     container_name: ouroboros-redis
     command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: [ "CMD", "redis-cli", "ping" ]
+      test: [ "CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,19 +39,15 @@ services:
   # immudb - Immutable audit logging
   immudb:
     image: codenotary/immudb:latest
+    platform: linux/amd64
     container_name: ouroboros-immudb
     environment:
       IMMUDB_ADMIN_PASSWORD: ${IMMUDB_PASSWORD:-immudb}
       IMMUDB_DATABASE: ouroboros_audit
     ports:
-      - "3322:3322"
+      - "127.0.0.1:3322:3322"
     volumes:
       - immudb_data:/var/lib/immudb
-    healthcheck:
-      test: [ "CMD", "sh", "-c", "exit 0" ]
-      interval: 15s
-      timeout: 5s
-      retries: 5
     networks:
       - ouroboros_network
 
@@ -67,11 +61,11 @@ services:
       - "--addr=0.0.0.0:8181"
       - "/policies"
     ports:
-      - "8181:8181"
+      - "127.0.0.1:8181:8181"
     volumes:
       - ./config/opa_policies:/policies:ro
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8181/health" ]
+      test: [ "CMD", "/opa", "eval", "true" ]
       interval: 10s
       timeout: 5s
       retries: 5

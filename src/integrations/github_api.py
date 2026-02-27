@@ -4,6 +4,7 @@ Repository cloning, branch creation, and PR management
 """
 
 import logging
+import re
 import subprocess
 from typing import Dict, Any, Optional, List
 from pathlib import Path
@@ -49,14 +50,22 @@ class GitHubClient:
         if target_dir is None:
             target_dir = Path(tempfile.mkdtemp(prefix="ouroboros_"))
         
-        logger.info(f"Cloning {repo_url} branch {branch} to {target_dir}")
+        # Inject auth token into HTTPS URL so git push works later
+        auth_url = repo_url
+        if settings.github_token and "github.com" in repo_url:
+            auth_url = repo_url.replace(
+                "https://github.com",
+                f"https://{settings.github_token}@github.com"
+            )
+        
+        logger.info(f"Cloning {re.sub(r'://[^@]+@', '://<REDACTED>@', repo_url)} branch {branch} to {target_dir}")
         
         # Security: No shell=True (per 03_CRITICAL_DO_NOT_FILE)
         cmd = [
             "git", "clone",
             "--branch", branch,
             "--single-branch",
-            repo_url,
+            auth_url,
             str(target_dir)
         ]
         
@@ -68,7 +77,7 @@ class GitHubClient:
                 text=True,
                 timeout=300
             )
-            logger.info(f"Successfully cloned {repo_url}")
+            logger.info(f"Successfully cloned {re.sub(r'://[^@]+@', '://<REDACTED>@', repo_url)}")
             
             # Configure git identity for this repository
             logger.info("Configuring git identity for Ouroboros")
@@ -147,6 +156,75 @@ class GitHubClient:
         logger.info(f"Created commit {commit_sha}")
         return commit_sha
     
+    def get_authenticated_user(self) -> str:
+        """
+        Get the authenticated GitHub user's login name.
+        
+        Returns:
+            GitHub username string
+        """
+        if not self.client:
+            raise ValueError("GitHub client not initialized")
+        return self.client.get_user().login
+
+    def set_remote(
+        self,
+        repo_path: Path,
+        remote_name: str,
+        remote_url: str
+    ) -> None:
+        """
+        Add or update a git remote.
+        
+        Args:
+            repo_path: Path to git repository
+            remote_name: Remote name (e.g. "fork")
+            remote_url: Remote URL
+        """
+        logger.info(f"Setting remote {remote_name} → {remote_url[:40]}...")
+        
+        # Try to add; if it already exists, update the URL
+        cmd_add = ["git", "-C", str(repo_path), "remote", "add", remote_name, remote_url]
+        result = subprocess.run(cmd_add, capture_output=True, text=True)
+        
+        if result.returncode != 0:
+            # Remote already exists, update URL
+            cmd_set = ["git", "-C", str(repo_path), "remote", "set-url", remote_name, remote_url]
+            subprocess.run(cmd_set, check=True, capture_output=True, text=True)
+        
+        logger.info(f"Remote {remote_name} configured")
+
+    def push_branch(
+        self,
+        repo_path: Path,
+        branch_name: str,
+        remote: str = "origin"
+    ) -> None:
+        """
+        Push a local branch to a remote.
+        
+        Args:
+            repo_path: Path to git repository
+            branch_name: Branch to push
+            remote: Remote name to push to (default: "origin" — the fork)
+        """
+        logger.info(f"Pushing branch {branch_name} to remote {remote}")
+        
+        cmd = ["git", "-C", str(repo_path), "push", "-u", remote, branch_name]
+        
+        try:
+            subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            logger.info(f"Successfully pushed {branch_name} to {remote}")
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to push branch: {e.stderr}")
+            raise
+
     def fork_repository(self, repo_full_name: str) -> str:
         """
         Fork a repository to the authenticated user's account.
@@ -166,8 +244,16 @@ class GitHubClient:
             original_repo = self.client.get_repo(repo_full_name)
             fork = user.create_fork(original_repo)
             
+            # Return auth-embedded URL so clone+push works seamlessly
+            clone_url = fork.clone_url  # https://github.com/user/repo.git
+            if settings.github_token:
+                clone_url = clone_url.replace(
+                    "https://github.com",
+                    f"https://{settings.github_token}@github.com"
+                )
+            
             logger.info(f"Forked to {fork.html_url}")
-            return fork.clone_url
+            return clone_url
         except GithubException as e:
             logger.error(f"Failed to fork repository: {e}")
             raise

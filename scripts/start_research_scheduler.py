@@ -6,7 +6,7 @@ Background daemon that runs Research Agent on a fixed schedule (default: 0, 8, 1
 import asyncio
 import logging
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Add parent directory to path for imports
@@ -35,7 +35,7 @@ async def scheduler_loop():
     
     while True:
         try:
-            current_hour = datetime.utcnow().hour
+            current_hour = datetime.now(timezone.utc).hour
             
             # Check if we should run now AND haven't run this hour yet
             if should_run_now() and current_hour != last_run_hour:

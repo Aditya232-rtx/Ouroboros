@@ -32,4 +32,34 @@ async def governance_node(state: OuroborosState) -> OuroborosState:
     
     logger.info(f"✅ Governance complete: {len(state['prioritized_queue'])} vulnerabilities prioritized")
     
+    # Persist governance results to DB immediately
+    try:
+        from src.database.session import SessionLocal
+        from src.database.models import Scan
+        
+        db = SessionLocal()
+        scan_id = state.get("scan_id")
+        if scan_id:
+            scan = db.query(Scan).filter(Scan.scan_id == scan_id).first()
+            if scan:
+                # Update metadata with governance results
+                metadata = dict(scan.scan_metadata or {})
+                
+                # Use enriched queue for metadata (detailed for frontend)
+                # Fallback to prioritized_queue (raw for blue agent) if enriched missing
+                gov_queue = result.get("enriched_queue", []) or state["prioritized_queue"]
+                
+                metadata.update({
+                    "current_phase": "governance_complete",
+                    "governance_queue": gov_queue,
+                    "risk_scores": state["risk_scores"],
+                    "governance_decisions": state["governance_decisions"]
+                })
+                scan.scan_metadata = metadata
+                db.commit()
+                logger.info(f"💾 Persisted governance results to DB for {scan_id}")
+        db.close()
+    except Exception as e:
+        logger.error(f"Failed to persist governance results: {e}")
+    
     return state

@@ -851,7 +851,7 @@ All fixes passed 5-layer validation:
         if full_path.exists():
             try:
                 return full_path.read_text(encoding="utf-8", errors="ignore")
-            except:
+            except OSError:
                 pass
         return ""
     

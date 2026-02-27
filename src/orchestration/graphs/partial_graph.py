@@ -8,11 +8,11 @@ Designed for reusing existing vulnerability scan outputs.
 import logging
 from langgraph.graph import StateGraph, END
 from src.orchestration.state import OuroborosState
-from src.orchestration.nodes.governance_node import governance_prioritize_node
+from src.orchestration.nodes.governance_node import governance_node
 from src.orchestration.nodes.blue_fix_node import blue_fix_node
 from src.orchestration.nodes.red_verify_node import red_verify_node
-from src.orchestration.nodes.doc_final_node import final_documentation_node
-from src.orchestration.nodes.pr_node import pr_create_node
+from src.orchestration.nodes.doc_final_node import doc_final_node
+from src.orchestration.nodes.create_pr_node import create_pr_node
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +30,11 @@ def create_partial_workflow_graph():
     workflow = StateGraph(OuroborosState)
     
     # Add only required nodes
-    workflow.add_node("governance", governance_prioritize_node)
+    workflow.add_node("governance", governance_node)
     workflow.add_node("blue_fix", blue_fix_node)
     workflow.add_node("red_verify", red_verify_node)
-    workflow.add_node("doc_final", final_documentation_node)
-    workflow.add_node("pr_create", pr_create_node)
+    workflow.add_node("doc_final", doc_final_node)
+    workflow.add_node("pr_create", create_pr_node)
     
     # Linear flow (no conditional routing, no retry loops)
     workflow.add_edge("governance", "blue_fix")

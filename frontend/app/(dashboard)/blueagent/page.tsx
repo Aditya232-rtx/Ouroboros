@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import StatsCard from "../../components/StatsCard";
 import PatchPreview from "../../components/PatchPreview";
@@ -8,21 +8,13 @@ import TerminalLog from "../../components/TerminalLog";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import { Zap, Code2, CheckCircle, Clock } from "lucide-react";
 import { LogEntry, ScanStatus } from "../../lib/types";
-import { fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
-import { useScanLogs } from "../../hooks/useScanLogs";
+import { fetchLogs, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
 
-export default function BlueAgentPage() {
+function BlueAgentContent() {
     const searchParams = useSearchParams();
     const scanId = searchParams.get("scan_id") || "latest";
-
-    const { logs: allLogs } = useScanLogs(scanId);
-
-    // Strict filtering for Blue Agent logs
-    const logs = allLogs.filter(l =>
-        l.source === "BLUE_AGENT" ||
-        l.source === "blue_agent"
-    );
-
+    
+    const [logs, setLogs] = useState<LogEntry[]>([]);
     const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
     const [patchDiff, setPatchDiff] = useState<string>("");
     const [stats, setStats] = useState({
@@ -32,38 +24,34 @@ export default function BlueAgentPage() {
         avgPatchTime: "0s"
     });
 
-    // Dummy diff for preview (will be replaced with real data)
-    const dummyDiff = patchDiff || `@@ -42,7 +42,10 @@ export default {
-    const user = await User.findById(req.params.id);
-+    // FIX: Validate user ID before query
-+    if (!validator.isMongoId(req.params.id)) {
-+      throw new Error('Invalid user ID');
-+    }
-+    const user = await User.findById(req.params.id);`;
-
     useEffect(() => {
         const loadData = async () => {
             try {
-                // Logs are handled by useScanLogs hook now
-
+                // Fetch logs
+                const logData = await fetchLogs(scanId);
+                if (logData.length > 0) {
+                    // Filter for blue_agent logs
+                    const blueAgentLogs = logData.filter(l => 
+                        l.source === "blue_agent" || l.message.toLowerCase().includes("fix") || l.message.toLowerCase().includes("patch")
+                    );
+                    setLogs(blueAgentLogs.length > 0 ? blueAgentLogs : logData);
+                }
+                
                 // Fetch scan status
                 const status = await fetchScanStatus(scanId);
-                if (status) setScanStatus(status);
-
+                setScanStatus(status);
+                
                 // Fetch vulnerabilities to get fix stats
                 const vulns = await fetchVulnerabilities(scanId);
-                // Keep stats if we have data
-                if (vulns) {
-                    const fixedCount = vulns.filter(v => v.status === "remediated").length;
-
-                    setStats({
-                        patchesGenerated: fixedCount,
-                        testsPass: fixedCount, // Assume tests pass if fix applied
-                        gatesPassed: fixedCount > 0 ? 5 : 0, // 5 safety gates if any fix
-                        avgPatchTime: "12s"
-                    });
-                }
-
+                const fixedCount = vulns.filter(v => v.status === "remediated").length;
+                
+                setStats({
+                    patchesGenerated: fixedCount,
+                    testsPass: fixedCount, // Assume tests pass if fix applied
+                    gatesPassed: fixedCount > 0 ? 5 : 0, // 5 safety gates if any fix
+                    avgPatchTime: "12s"
+                });
+                
             } catch (error) {
                 console.error("Failed to load data:", error);
             }
@@ -129,7 +117,7 @@ export default function BlueAgentPage() {
                         <div className="flex-1 overflow-auto bg-[#0d1117]">
                             <PatchPreview
                                 file="src/components/Dashboard.vue"
-                                diff={dummyDiff}
+                                diff={patchDiff || "// No patch available yet"}
                                 className="border-none bg-transparent"
                             />
                         </div>
@@ -169,5 +157,13 @@ export default function BlueAgentPage() {
                 />
             </div>
         </div>
+    );
+}
+
+export default function BlueAgentPage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+            <BlueAgentContent />
+        </Suspense>
     );
 }

@@ -5,7 +5,7 @@ Helper functions for application initialization and cleanup.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +61,7 @@ async def cleanup_incomplete_scans():
             for scan in incomplete_scans:
                 scan.status = ScanStatus.FAILED
                 scan.error_message = "Server restarted - scan cancelled"
-                scan.completed_at = datetime.utcnow()
+                scan.completed_at = datetime.now(timezone.utc)
                 logger.info(f"  ✗ Cancelled scan {scan.scan_id}")
             
             db.commit()

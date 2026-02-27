@@ -7,7 +7,7 @@ Loads existing RED output and runs GOVERNANCE → BLUE → VERIFY → DOC → PR
 import logging
 import json
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any
 
 from src.database.session import SessionLocal
@@ -46,7 +46,7 @@ def run_partial_scan_in_process(scan_id: str, request_data: Dict[str, Any]) -> N
 
         # Update status to generating fixes
         scan.status = ScanStatus.GENERATING_FIXES
-        scan.started_at = datetime.utcnow()
+        scan.started_at = datetime.now(timezone.utc)
         scan.scan_metadata = {"current_phase": "governance", "partial": True}
         db.commit()
 
@@ -70,19 +70,26 @@ def run_partial_scan_in_process(scan_id: str, request_data: Dict[str, Any]) -> N
             "create_pr": request_data.get("create_pr", True)
         }
         
-        # Run workflow asynchronously
-        result = asyncio.run(workflow.run_from_blue(**input_data))
+        # Run workflow in this process's event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(workflow.run_from_blue(**input_data))
+        finally:
+            loop.close()
         
-        # Update scan with results
+        # Update scan with results (sanitize enums/dataclasses for JSON)
+        from src.api.workers.scan_worker import _json_safe
+        safe_result = _json_safe(result)
         scan.status = ScanStatus.COMPLETED
-        scan.completed_at = datetime.utcnow()
+        scan.completed_at = datetime.now(timezone.utc)
         scan.scan_metadata = {
             "current_phase": "completed",
             "partial": True,
-            "vulnerabilities_found": len(result.get("vulnerabilities", [])),
-            "fixes_applied": len(result.get("fixes", [])),
-            "pr_url": result.get("pr_url"),
-            "result": result
+            "vulnerabilities_found": len(safe_result.get("vulnerabilities", [])),
+            "fixes_applied": len(safe_result.get("fixes", [])),
+            "pr_url": safe_result.get("pr_url"),
+            "result": safe_result
         }
         db.commit()
         
@@ -94,36 +101,38 @@ def run_partial_scan_in_process(scan_id: str, request_data: Dict[str, Any]) -> N
         if scan:
             scan.status = ScanStatus.FAILED
             scan.error_message = str(e)
-            scan.completed_at = datetime.utcnow()
+            scan.completed_at = datetime.now(timezone.utc)
             db.commit()
     
     finally:
-        # Remove log handler
-        root_logger = logging.getLogger()
-        root_logger.removeHandler(log_handler)
+        # Remove log handler (may not exist if exception before assignment)
+        if 'log_handler' in dir():
+            root_logger = logging.getLogger()
+            root_logger.removeHandler(log_handler)
         
         # Persist Redis logs to DB
-        try:
-            redis_client = get_redis_client()
-            redis_key = f"scan:{scan_id}:logs"
-            raw_logs = redis_client.lrange(redis_key, 0, -1)
-            
-            if raw_logs:
-                new_db_logs = []
-                for raw in raw_logs:
-                    log_data = json.loads(raw)
-                    new_db_logs.append(ScanLog(
-                        scan_id=scan.id,
-                        timestamp=datetime.utcnow(),
-                        level=log_data.get("level", "info").upper(),
-                        source=log_data.get("source", "SYSTEM"),
-                        message=log_data.get("message", "")
-                    ))
-                db.add_all(new_db_logs)
-                db.commit()
-                logger.info(f"Persisted {len(new_db_logs)} logs to DB for scan {scan_id}")
-        except Exception as e:
-            logger.error(f"Failed to persist logs to DB for {scan_id}: {e}")
+        if 'scan' in dir() and scan:
+            try:
+                redis_client = get_redis_client()
+                redis_key = f"scan:{scan_id}:logs"
+                raw_logs = redis_client.lrange(redis_key, 0, -1)
+                
+                if raw_logs:
+                    new_db_logs = []
+                    for raw in raw_logs:
+                        log_data = json.loads(raw)
+                        new_db_logs.append(ScanLog(
+                            scan_id=scan.id,
+                            timestamp=datetime.now(timezone.utc),
+                            level=log_data.get("level", "info").upper(),
+                            source=log_data.get("source", "SYSTEM"),
+                            message=log_data.get("message", "")
+                        ))
+                    db.add_all(new_db_logs)
+                    db.commit()
+                    logger.info(f"Persisted {len(new_db_logs)} logs to DB for scan {scan_id}")
+            except Exception as e:
+                logger.error(f"Failed to persist logs to DB for {scan_id}: {e}")
         
         # Close database connection
         db.close()

@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import InteractiveGridBackground from "../components/InteractiveGridBackground";
 import { useAuth } from "../context/AuthContext";
 
-export default function LoginPage() {
+function LoginForm() {
     const searchParams = useSearchParams();
     const { login } = useAuth();
 
@@ -23,7 +23,7 @@ export default function LoginPage() {
         setLoading(true);
 
         try {
-            const response = await fetch("http://localhost:8000/auth/login", {
+            const response = await fetch("/api/proxy/auth/login", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
@@ -198,5 +198,13 @@ export default function LoginPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function LoginPage() {
+    return (
+        <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Loading...</div>}>
+            <LoginForm />
+        </Suspense>
     );
 }

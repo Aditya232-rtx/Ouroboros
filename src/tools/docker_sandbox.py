@@ -6,6 +6,7 @@ Per 03_CRITICAL_DO_NOT: NEVER execute generated code without sandboxing
 
 import logging
 import docker
+import base64
 from typing import Dict, Any, Optional
 from pathlib import Path
 import tempfile
@@ -35,6 +36,15 @@ class DockerSandbox:
             logger.error(f"Failed to initialize Docker: {e}")
             self.client = None
     
+    def _encode_code_for_container(self, code: str) -> str:
+        """
+        Safely encode code for container execution using base64.
+        
+        SECURITY: Never interpolate untrusted code into string literals.
+        Base64 encoding prevents triple-quote injection attacks.
+        """
+        return base64.b64encode(code.encode('utf-8')).decode('ascii')
+    
     def execute_python_code(
         self,
         code: str,
@@ -59,22 +69,32 @@ class DockerSandbox:
         
         logger.info("Executing code in Docker sandbox...")
         
+        # SECURITY: Base64-encode code to prevent injection
+        encoded_code = self._encode_code_for_container(code)
+        
         try:
             # Create container with security constraints
             container = self.client.containers.run(
                 image="python:3.11-slim",
-                command=["python", "-c", code],
+                command=[
+                    "python", "-c",
+                    f"import base64; exec(base64.b64decode('{encoded_code}').decode('utf-8'))"
+                ],
                 # SECURITY: Network disabled
                 network_disabled=True,
-                # SECURITY: Read-only root filesystem
+                # SECURITY: Read-only root filesystem  
                 read_only=True,
+                # SECURITY: tmpfs for writable temp space
+                tmpfs={"/tmp": "size=64M"},
                 # SECURITY: Resource limits
                 mem_limit=mem_limit,
                 cpu_quota=cpu_quota,
                 # SECURITY: No privileged mode
                 privileged=False,
-                # Cleanup after execution
-                remove=True,
+                # SECURITY: Drop all capabilities
+                cap_drop=["ALL"],
+                # Do NOT auto-remove so we can read logs
+                remove=False,
                 # Capture output
                 stdout=True,
                 stderr=True,
@@ -82,12 +102,16 @@ class DockerSandbox:
                 detach=True
             )
             
-            # Wait for completion with timeout
-            exit_code = container.wait(timeout=timeout)
+            # Wait for completion with timeout — returns {"StatusCode": int, "Error": ...}
+            result = container.wait(timeout=timeout)
+            exit_code = result.get("StatusCode", -1)
             
-            # Get output
+            # Get output before cleanup
             stdout = container.logs(stdout=True, stderr=False).decode('utf-8')
             stderr = container.logs(stdout=False, stderr=True).decode('utf-8')
+            
+            # Cleanup container
+            container.remove(force=True)
             
             logger.info(f"Sandbox execution completed (exit code: {exit_code})")
             
@@ -111,6 +135,11 @@ class DockerSandbox:
             
         except Exception as e:
             logger.error(f"Sandbox execution error: {e}")
+            # Try to cleanup container on error
+            try:
+                container.remove(force=True)
+            except Exception:
+                pass
             return {
                 "success": False,
                 "exit_code": -1,
@@ -128,45 +157,34 @@ class DockerSandbox:
         """
         Execute a fix in sandbox and validate it.
         
-        Args:
-            original_code: Original vulnerable code
-            fixed_code: Proposed fix
-            test_code: Optional test code to run
-            
-        Returns:
-            Validation results
+        SECURITY: Code is base64-encoded before being passed to container
+        to prevent triple-quote injection attacks.
         """
         logger.info("Validating fix in sandbox...")
         
-        # Create test harness
-        test_harness = f"""
-import sys
-import traceback
-
-# Original code (for comparison)
-original_code = '''
-{original_code}
-'''
-
-# Fixed code to test
-fixed_code = '''
-{fixed_code}
-'''
-
-# Execute fixed code
-try:
-    exec(fixed_code)
-    print("SANDBOX_SUCCESS: Code executed without errors")
-    sys.exit(0)
-except Exception as e:
-    print(f"SANDBOX_ERROR: {{e}}")
-    traceback.print_exc()
-    sys.exit(1)
-"""
+        # Build test harness as a single string — will be base64-encoded
+        test_harness = (
+            "import sys, traceback\n"
+            "try:\n"
+            "    exec(fixed_code_content)\n"
+            "    print('SANDBOX_SUCCESS: Code executed without errors')\n"
+            "    sys.exit(0)\n"
+            "except Exception as e:\n"
+            "    print(f'SANDBOX_ERROR: {e}')\n"
+            "    traceback.print_exc()\n"
+            "    sys.exit(1)\n"
+        )
         
-        result = self.execute_python_code(test_harness, timeout=60)
+        # Inject fixed_code as a variable via base64, not string interpolation
+        encoded_fixed = self._encode_code_for_container(fixed_code)
+        bootstrap = (
+            f"import base64\n"
+            f"fixed_code_content = base64.b64decode('{encoded_fixed}').decode('utf-8')\n"
+            + test_harness
+        )
         
-        # Check if code executed successfully
+        result = self.execute_python_code(bootstrap, timeout=60)
+        
         success = result["success"] and "SANDBOX_SUCCESS" in result["stdout"]
         
         return {
@@ -183,39 +201,63 @@ except Exception as e:
         """
         Run PoC exploit against code to verify vulnerability.
         
-        Args:
-            poc_code: Proof-of-concept exploit
-            target_code: Code to attack
-            
-        Returns:
-            Exploit results
+        SECURITY: Both poc_code and target_code are base64-encoded
+        to prevent code injection during string construction.
         """
         logger.info("Running PoC in sandbox...")
         
-        exploit_harness = f"""
-import sys
+        encoded_poc = self._encode_code_for_container(poc_code)
+        encoded_target = self._encode_code_for_container(target_code)
+        
+        exploit_harness = (
+            f"import sys, base64\n"
+            f"target_code = base64.b64decode('{encoded_target}').decode('utf-8')\n"
+            f"poc_code = base64.b64decode('{encoded_poc}').decode('utf-8')\n"
+            "try:\n"
+            "    exec(target_code)\n"
+            "    exec(poc_code)\n"
+            "    print('EXPLOIT_SUCCESS: Vulnerability confirmed')\n"
+            "    sys.exit(0)\n"
+            "except Exception as e:\n"
+            "    print(f'EXPLOIT_FAILED: {e}')\n"
+            "    sys.exit(1)\n"
+        )
+        
+        result = self.execute_python_code(exploit_harness, timeout=30, mem_limit="256m")
+        
+        return {
+            "exploit_successful": result["success"] and "EXPLOIT_SUCCESS" in result["stdout"],
+            "execution_result": result,
+        }
 
-# Target code
-target_code = '''
-{target_code}
-'''
-
-# PoC exploit
-poc = '''
-{poc_code}
-'''
-
-# Execute target
-try:
-    exec(target_code)
-    # Try exploit
-    exec(poc)
-    print("POC_SUCCESS: Exploit succeeded (vulnerability present)")
-    sys.exit(0)
-except Exception as e:
-    print(f"POC_FAILED: Exploit failed (vulnerability fixed): {{e}}")
-    sys.exit(1)
-"""
+    def verify_vulnerability(
+        self,
+        poc_code: str,
+        target_code: str
+    ) -> Dict[str, Any]:
+        """
+        Verify if a vulnerability is still present by running PoC exploit.
+        
+        Returns whether vulnerability is present (bad) or fixed (good).
+        """
+        logger.info("Verifying vulnerability presence in sandbox...")
+        
+        encoded_poc = self._encode_code_for_container(poc_code)
+        encoded_target = self._encode_code_for_container(target_code)
+        
+        exploit_harness = (
+            f"import sys, base64\n"
+            f"target_code = base64.b64decode('{encoded_target}').decode('utf-8')\n"
+            f"poc_code = base64.b64decode('{encoded_poc}').decode('utf-8')\n"
+            "try:\n"
+            "    exec(target_code)\n"
+            "    exec(poc_code)\n"
+            "    print('POC_SUCCESS: Exploit succeeded (vulnerability present)')\n"
+            "    sys.exit(0)\n"
+            "except Exception as e:\n"
+            "    print(f'POC_FAILED: Exploit failed (vulnerability fixed): {e}')\n"
+            "    sys.exit(1)\n"
+        )
         
         result = self.execute_python_code(exploit_harness, timeout=60)
         
