@@ -1,0 +1,242 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Ouroboros AI – LoRA Fine-Tuning Configuration  (Tasks 3.1 / 3.2 / 3.3)
+# Target model: Qwen/Qwen2.5-Coder-3B-Instruct
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── Model ────────────────────────────────────────────────────────────────────
+model:
+  name: Qwen/Qwen2.5-Coder-3B-Instruct
+  # Local path (preferred – avoids network I/O at training time)
+  # Set via env var  OUROBOROS_MODEL_PATH  or override per experiment.
+  local_path: null
+  dtype: bfloat16          # Use bfloat16 for training stability (A100/H100/RTX3090+)
+  # dtype: float16         # Fallback for older GPUs without bfloat16 support
+  attn_implementation: eager  # Use eager (flash_attention_2 if installed + A100)
+
+# ── LoRA Core Parameters ─────────────────────────────────────────────────────
+# Recommendation matrix:
+#   r=16 / alpha=32   → Conservative. Good starting point. ~2× regularisation.
+#   r=32 / alpha=64   → More expressive. Better for larger/noisier datasets.
+#   r=16 / alpha=16   → Very conservative (alpha == r). Minimal specialisation.
+#   r=32 / alpha=32   → Balanced. Neutral regularisation.
+#
+# Rule of thumb: alpha / r controls effective learning rate scaling.
+# alpha/r = 2 (16/32 or 32/64) is the standard recommendedstarting default.
+# ─────────────────────────────────────────────────────────────────────────────
+lora:
+  r: 16                       # LoRA rank. Options: 8, 16, 32
+  alpha: 32                   # LoRA alpha. Options: 16, 32, 64 (alpha = 2×r recommended)
+
+  # ── Dropout  (Task 3.3) ───────────────────────────────────────────────────
+  # LoRA dropout is applied *inside* each adapter layer (after the A matrix,
+  # before the B matrix) during training only.  It randomly zeroes a fraction
+  # `dropout` of activations to prevent co-adaptation and overfitting.
+  #
+  # Choosing dropout:
+  #   0.00  → No regularisation. Only viable with very large datasets.
+  #   0.05  → Light dropout. Recommended default for small-to-medium datasets
+  #           (<10k samples). Adds mild stochasticity without hurting convergence.
+  #   0.10  → Moderate dropout. Better for noisy or highly repetitive datasets.
+  #           Slows convergence slightly; use with higher epochs or larger LR.
+  #   0.15+ → Aggressive. Usually not needed for LoRA adapters.
+  #
+  # Dataset size heuristic:
+  #   < 5k samples  → prefer 0.05
+  #   5k–50k        → 0.05 or 0.10 based on val-loss monitoring
+  #   > 50k         → 0.10 (more data, more risk of memorisation)
+  dropout: 0.05               # Task 3.3 default – change to 0.10 for noisier data
+
+  bias: none                  # Whether to train bias params: none | all | lora_only
+
+  # ── Target Modules ────────────────────────────────────────────────────────
+  # Target the FOUR attention projection matrices in each Qwen2 transformer block.
+  # Qwen2.5 uses standard MHA with these projections:
+  #   q_proj  – Query projection
+  #   k_proj  – Key projection
+  #   v_proj  – Value projection
+  #   o_proj  – Output projection (after attention concat)
+  #
+  # Optionally add gate/up/down projections from the MLP head for higher
+  # expressiveness at the cost of more trainable parameters:
+  #   gate_proj, up_proj, down_proj
+  #
+  target_modules:
+    - q_proj
+    - k_proj
+    - v_proj
+    - o_proj
+    # Uncomment below to also adapt MLP layers (more params, more adaptability):
+    # - gate_proj
+    # - up_proj
+    # - down_proj
+
+  # ── Merge strategy ────────────────────────────────────────────────────────
+  task_type: CAUSAL_LM         # Required by PEFT for causal language modelling
+  inference_mode: false        # Must be false during training
+  use_rslora: false            # Rank-Stabilised LoRA (set true if using r > 32)
+
+# ── Training Hyperparameters ─────────────────────────────────────────────────
+training:
+  output_dir: models/ouroboros-blue-lora
+  num_train_epochs: 3
+  per_device_train_batch_size: 1     # CPU test
+  per_device_eval_batch_size: 1
+  gradient_accumulation_steps: 1     # Effective batch = 1
+  gradient_checkpointing: false      # Turn off on CPU to save compute
+  learning_rate: 2.0e-4
+  lr_scheduler_type: cosine          # cosine is standard for LoRA fine-tunes
+  warmup_ratio: 0.05                 # 5% warmup steps
+  weight_decay: 0.01          # L2 penalty on non-bias weights (Task 3.3)
+  # Weight decay discourages exploding adapter weights by penalising the L2
+  # norm of weight matrices in the optimiser update:
+  #   θ ← θ − lr × (grad + weight_decay × θ)
+  # This is equivalent to decoupled L2 regularisation (AdamW style).
+  #   0.00  → No L2 penalty. Fine if dropout is aggressive.
+  #   0.01  → Light standard value. Recommended with dropout=0.05.
+  #   0.05  → Moderate. Use if val_loss diverges from train_loss early.
+  #   0.10  → Strong. Only with VERY small datasets and many epochs.
+
+  # ── Optimizer  (Task 6.1) ─────────────────────────────────────────────────
+  # paged_adamw_8bit uses NVIDIA unified memory to page optimizer states
+  # (first- and second-moment tensors) to CPU RAM when VRAM pressure rises.
+  # This prevents OOM on the backward pass and is the standard choice for
+  # QLoRA training (bitsandbytes implementation).
+  #
+  # Available options and recommended use:
+  #   paged_adamw_8bit  → Recommended for QLoRA on consumer GPUs (≤24 GB)
+  #   paged_adamw_32bit → More numerically stable; use if loss is unstable
+  #   adamw_8bit        → Non-paged 8-bit Adam (falls back to 32-bit on OOM)
+  #   adamw_bnb_8bit    → Alias for adamw_8bit in newer transformers
+  #   adamw_torch       → Full 32-bit AdamW, use only with large VRAM (≥40 GB)
+  #
+  # Memory saving compared to standard 32-bit AdamW:
+  #   Model params:         3B × 4B = 12 GB
+  #   LoRA adapter (r=16):  ~240 MB
+  #   8-bit optimizer states: ~1.5 GB  (vs ~6 GB for 32-bit Adam)
+  #   → Net saving: ~4.5 GB VRAM vs adamw_torch
+  optim: adamw_torch            # OOM-safe optimizer (Task 6.1)
+
+  max_grad_norm: 1.0
+  fp16: false                        # Do NOT mix fp16 + bfloat16 model
+  bf16: false                         # Match model dtype
+  logging_steps: 10
+
+  # ── Evaluation (Task 4.1) ─────────────────────────────────────────────────
+  # eval_steps controls how often validation loss is computed.
+  # Early stopping patience=3 means:
+  #   If eval_loss does not improve by >= threshold for 3 consecutive
+  #   evaluations, training halts automatically.
+  # With eval_steps=200 that equals 600 steps of patience (generous).
+  eval_strategy: steps
+  eval_steps: 200                    # Evaluate every 200 gradient steps
+
+  # ── Checkpointing (Task 4.2) ─────────────────────────────────────────────
+  # save_strategy must match eval_strategy so checkpoints align with evals.
+  # save_total_limit=5 keeps the 5 most recent checkpoints on disk.
+  # load_best_model_at_end=True restores the best checkpoint when training ends.
+  # Use checkpoint_manager.py --best to inspect and export the winner.
+  save_strategy: steps
+  save_steps: 200                    # Must equal eval_steps for best-ckpt tracking
+  save_total_limit: 5                # Keep last 5 checkpoints; older ones deleted
+  load_best_model_at_end: true       # Restore best val_loss checkpoint at end
+  metric_for_best_model: eval_loss
+  greater_is_better: false
+  report_to: none                    # Set to "wandb" or "tensorboard" if available
+  seed: 42
+
+# ── Early Stopping  (Task 4.1) ──────────────────────────────────────────────
+# Implemented via HuggingFace EarlyStoppingCallback.
+# Requires: load_best_model_at_end=True AND eval_strategy != "no".
+#
+# patience : Number of consecutive evaluations without improvement before halt.
+#            3  → Aggressive. Stops early, saves compute on small datasets.
+#            5  → Conservative. Allows more epochs before giving up.
+# threshold: Minimum absolute improvement in eval_loss to count as "better".
+#            1e-4 means a drop of 0.0001 in loss is the minimum signal.
+#            Smaller values trigger earlier on marginal improvements.
+Early_stopping:
+  enabled:   true
+  patience:  3                       # Halt after 3 evals with no improvement
+  threshold: 1.0e-4                  # Min delta in eval_loss to count as improvement
+
+# ── Data ─────────────────────────────────────────────────────────────────────
+data:
+  train_file: data/splits/train.jsonl
+  val_file:   data/splits/val.jsonl
+  test_file:  data/splits/test.jsonl
+  max_seq_length: 512               # Reduced for CPU test
+  pack_sequences: false              # Set true only for uniform-length batches
+  remove_unused_columns: true
+
+# ── QLoRA (Quantised LoRA) ────────────────────────────────────────────────────
+# QLoRA loads the base model in 4-bit and trains LoRA adapters in bf16.
+# Enables training Qwen2.5-Coder-3B on a consumer GPU (8–12 GB VRAM).
+qlora:
+  enabled: false
+  load_in_4bit: true
+  bnb_4bit_compute_dtype: bfloat16
+  bnb_4bit_quant_type: nf4            # NormalFloat4 – recommended for LoRA
+  bnb_4bit_use_double_quant: true     # Extra memory saving (~0.4 bits per param)
+
+# ── Regularization Grid  (Task 3.3) ─────────────────────────────────────────
+# Two independent axes for combating overfitting:
+#   A) LoRA dropout   – stochastic regularisation inside adapter layers
+#   B) Weight decay   – L2 penalty applied by the AdamW optimiser
+#
+# Interaction table:
+#   dropout=0.05 + wd=0.01  → Default. Works for small clean datasets.
+#   dropout=0.10 + wd=0.01  → Better for noisy / repetitive data.
+#   dropout=0.05 + wd=0.05  → Stronger L2, useful if adapter weights blow up.
+#   dropout=0.00 + wd=0.00  → No regularisation. Baseline for ablation only.
+#
+# Early-stopping guide:
+#   Monitor eval_loss every eval_steps (default: 100).
+#   If eval_loss stops decreasing while train_loss continues → overfitting.
+#   Response: increase dropout (0.05→0.10) or weight_decay (0.01→0.05).
+# ─────────────────────────────────────────────────────────────────────────────
+regularization:
+  # Active values (mirrored from lora.dropout and training.weight_decay)
+  lora_dropout:    0.05     # Applied inside each LoRA adapter layer
+  weight_decay:    0.01     # AdamW L2 coefficient
+  max_grad_norm:   1.0      # Gradient clipping (prevents exploding gradients)
+
+  # Alternative presets – uncomment and copy into lora/training sections to use
+  # light:    { lora_dropout: 0.05, weight_decay: 0.01 }   # default
+  # moderate: { lora_dropout: 0.10, weight_decay: 0.01 }   # noisy datasets
+  # strong:   { lora_dropout: 0.10, weight_decay: 0.05 }   # very small datasets
+  # ablation: { lora_dropout: 0.00, weight_decay: 0.00 }   # baseline only
+
+# ── Experiment Presets ────────────────────────────────────────────────────────
+# Override lora.r / lora.alpha / lora.dropout with --preset from the CLI.
+experiments:
+  conservative:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    description: "Safe starting point. alpha/r=2. dropout=0.05. ~9M params."
+  balanced:
+    r: 32
+    alpha: 64
+    dropout: 0.05
+    description: "More expressive. alpha/r=2. dropout=0.05. ~18M params."
+  high_rank:
+    r: 64
+    alpha: 64
+    dropout: 0.10
+    description: "Very expressive. Use with large datasets. dropout=0.10."
+  ablation_low:
+    r: 8
+    alpha: 16
+    dropout: 0.05
+    description: "Ablation control. Minimal adaption. ~4.5M params."
+  # ── Dropout-focused presets  (Task 3.3) ─────────────────────────────────
+  reg_light:
+    r: 16
+    alpha: 32
+    dropout: 0.05
+    description: "Task 3.3 light regularisation. dropout=0.05 + wd=0.01."
+  reg_moderate:
+    r: 16
+    alpha: 32
+    dropout: 0.10
+    description: "Task 3.3 moderate regularisation. dropout=0.10 + wd=0.01."
