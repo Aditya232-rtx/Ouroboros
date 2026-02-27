@@ -1,0 +1,29 @@
+# ─────────────────────────────────────────────────────────────────
+# MANIFEST.in — controls what goes into ``sdist`` (tar.gz) builds
+# The wheel is controlled by pyproject.toml [tool.poetry] packages
+# ─────────────────────────────────────────────────────────────────
+
+# SDK wrapper + CLI
+recursive-include ouroboros *.py
+
+# Full pipeline source
+recursive-include src *.py
+recursive-include config *.py
+
+# Jinja2 templates
+recursive-include templates *.j2
+
+# Config + docs
+include config.example.yaml
+include README.md
+include LICENSE
+include setup.py
+include pyproject.toml
+include requirements.txt
+include install.sh
+include install.bat
+
+# Exclude caches
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo

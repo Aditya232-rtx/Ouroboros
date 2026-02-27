@@ -36,9 +36,9 @@ class TestPackageMetadata:
         assert len(parts) == 3
         assert all(p.isdigit() for p in parts)
 
-    def test_version_is_1_0_0(self):
+    def test_version_is_1_1_0(self):
         import ouroboros
-        assert ouroboros.__version__ == "1.0.0"
+        assert ouroboros.__version__ == "1.1.0"
 
     def test_all_exports(self):
         import ouroboros
@@ -748,7 +748,7 @@ class TestCLI:
         result = runner.invoke(cli, ["info"])
         assert result.exit_code == 0
         assert "Ouroboros SDK" in result.output
-        assert "v1.0.0" in result.output
+        assert "v1.1.0" in result.output
         assert "Python" in result.output
 
     def test_scan_missing_config(self):
@@ -840,7 +840,7 @@ class TestCLI:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "1.0.0" in result.output
+        assert "1.1.0" in result.output
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -994,11 +994,11 @@ class TestEdgeCases:
 class TestBuildArtifacts:
 
     def test_wheel_exists(self):
-        wheel = Path(__file__).parent.parent / "dist" / "ouroboros_sdk-1.0.0-py3-none-any.whl"
+        wheel = Path(__file__).parent.parent / "dist" / "ouroboros_sdk-1.1.0-py3-none-any.whl"
         assert wheel.exists(), f"Wheel not found at {wheel}"
 
     def test_sdist_exists(self):
-        sdist = Path(__file__).parent.parent / "dist" / "ouroboros_sdk-1.0.0.tar.gz"
+        sdist = Path(__file__).parent.parent / "dist" / "ouroboros_sdk-1.1.0.tar.gz"
         assert sdist.exists(), f"Sdist not found at {sdist}"
 
     def test_pyproject_exists(self):
