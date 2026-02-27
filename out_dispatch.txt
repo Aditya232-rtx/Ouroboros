@@ -1,0 +1,35 @@
+D:\inceptrix\venv\Lib\site-packages\langchain_core\_api\deprecation.py:26: UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.
+  from pydantic.v1.fields import FieldInfo as FieldInfoV1
+D:\inceptrix\venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+Failed to initialize Docker: module 'docker' has no attribute 'from_env'
+
+=== INITIATING RESEARCH GRAPH ===
+[*] [Node: Ingest] Scraping https://nvd.nist.gov/vuln/detail/CVE-2021-44228...
+[*] Research Agent initiating PentAGI-style scrape for: https://nvd.nist.gov/vuln/detail/CVE-2021-44228
+[INIT].... → Crawl4AI 0.8.0 
+[FETCH]... ↓ https://nvd.nist.gov/vuln/detail/CVE-2021-44228                   
+| ✓ | ⏱: 3.25s 
+[SCRAPE].. ◆ https://nvd.nist.gov/vuln/detail/CVE-2021-44228                   
+| ✓ | ⏱: 0.34s 
+[COMPLETE] ● https://nvd.nist.gov/vuln/detail/CVE-2021-44228                   
+| ✓ | ⏱: 3.60s 
+[+] Scrape successful! Extracted clean Markdown.
+[*] [Node: Reason] Analyzing Markdown with Qwen 1.5b (Attempt 1/3)...
+[+] [Edge: Reflector] Valid JSON detected. Proceeding to Dispatch.
+
+[*] [Node: Dispatch] Intelligence validated. Initiating Handoff...
+[+] Intelligence saved locally to research_findings/CVE-2023-1846_report.json
+[*] Firing autonomous scan trigger to http://localhost:8000/api/scan...
+[-] API unreachable. (Is the FastAPI server running on port 8000?)
+
+=== FINAL EXTRACTED INTELLIGENCE ===
+{
+  "id": "CVE-2023-1846",
+  "title": "Insecure Frame Window in National Vulnerability Database Page",
+  "severity": "critical",
+  "cwe": "CWE-226: Insecure Frame Handling",
+  "cvss": 7.5,
+  "description": "A potential security issue is present in the National Vulnerability Database (NVD) page, where an unauthorized frame window is used to display external content without proper validation or authorization.",
+  "poc_code": "To reproduce the vulnerability, a malicious user can craft a frame that redirects users to <https://nvd.nist.gov>. This redirection occurs when the frame src attribute points to a non-secure website like the .gov banner."
+}

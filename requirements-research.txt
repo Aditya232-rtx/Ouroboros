@@ -1,4 +1,7 @@
-# Ouroboros AI Dependencies
+# Research Agent Requirements (Python 3.14 compatible)
+# Core subset of requirements.txt — excludes packages with Python <3.14 pins
+# (pyrit==0.10.0 requires Python <3.14; torch==2.6.0 requires Python <3.14)
+# These are not needed by the Research Agent.
 
 # =====================================================
 # CORE FRAMEWORK
@@ -8,23 +11,6 @@ langgraph==1.0.7
 ollama==0.6.1
 langchain-community==0.4.1
 langchain-core==1.2.7
-
-# =====================================================
-# AGENT TOOLS
-# =====================================================
-pyrit==0.10.0
-semgrep==1.149.0
-checkov==3.2.0
-playwright==1.57.0
-
-# =====================================================
-# LLM & AI
-# =====================================================
-anthropic==0.76.0
-openai==2.15.0
-transformers==4.57.6
-huggingface-hub==0.36.0
-torch==2.6.0
 
 # =====================================================
 # WEB FRAMEWORK
@@ -61,7 +47,6 @@ python-jose==3.5.0
 passlib==1.7.4
 argon2-cffi==25.1.0
 python-dotenv==1.2.1
-boto3==1.42.34
 
 # =====================================================
 # MONITORING & UTILITIES
@@ -95,9 +80,7 @@ flake8==7.3.0
 mypy==1.19.1
 
 # =====================================================
-# HACKATHON RESEARCH AGENT DEPENDENCIES (Python 3.14 compatible)
+# HACKATHON RESEARCH AGENT DEPENDENCIES
 # =====================================================
-# Note: versions updated from original spec (0.4.24/0.4.2) to latest
-# available on PyPI for Python 3.14
 chromadb==1.5.1
 crawl4ai==0.8.0

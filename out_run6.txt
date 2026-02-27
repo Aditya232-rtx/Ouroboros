@@ -1,0 +1,14 @@
+D:\inceptrix\venv\Lib\site-packages\langchain_core\_api\deprecation.py:26: UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.
+  from pydantic.v1.fields import FieldInfo as FieldInfoV1
+D:\inceptrix\venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+Failed to initialize Docker: module 'docker' has no attribute 'from_env'
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionGetEvent: capture() takes 1 positional argument but 3 were given
+
+=== INITIATING RESEARCH GRAPH ===
+[*] [Node: Ingest] Memory Hit: CVE-2021-44228 already researched. Skipping.
+
+=== FINAL EXTRACTED INTELLIGENCE ===
+{}

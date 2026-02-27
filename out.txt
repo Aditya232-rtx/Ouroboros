@@ -1,0 +1,100 @@
+D:\inceptrix\venv\Lib\site-packages\langchain_core\_api\deprecation.py:26: UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.
+  from pydantic.v1.fields import FieldInfo as FieldInfoV1
+D:\inceptrix\venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+Failed to initialize Docker: module 'docker' has no attribute 'from_env'
+
+=== INITIATING RESEARCH GRAPH ===
+[*] [Node: Ingest] Scraping https://nvd.nist.gov/vuln/detail/CVE-2021-44228...
+[*] Research Agent initiating PentAGI-style scrape for: https://nvd.nist.gov/vuln/detail/CVE-2021-44228
+[INIT]...Traceback (most recent call last):
+  File "D:\inceptrix\src\agents\research_agent.py", line 100, in <module>
+    final_state = asyncio.run(research_app.ainvoke(initial_state))
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runners.py", line 204, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\runners.py", line 127, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_events.py", line 719, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\pregel\main.py", line 3161, in ainvoke
+    async for chunk in self.astream(
+    ...<29 lines>...
+            chunks.append(chunk)
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\pregel\main.py", line 2974, in astream
+    async for _ in runner.atick(
+    ...<13 lines>...
+            yield o
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\pregel\_runner.py", line 304, in atick
+    await arun_with_retry(
+    ...<15 lines>...
+    )
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\pregel\_retry.py", line 138, in arun_with_retry
+    return await task.proc.ainvoke(task.input, config)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 705, in ainvoke
+    input = await asyncio.create_task(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        step.ainvoke(input, config, **kwargs), context=context
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "D:\inceptrix\venv\Lib\site-packages\langgraph\_internal\_runnable.py", line 473, in ainvoke
+    ret = await self.afunc(*args, **kwargs)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\src\agents\research_agent.py", line 19, in ingest_node
+    md = await scrape_vulnerability_data(state['url'])
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "d:\inceptrix\src\tools\research_scraper.py", line 25, in scrape_vulnerability_data
+    async with AsyncWebCrawler(verbose=True) as crawler:
+               ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\crawl4ai\async_webcrawler.py", line 196, in __aenter__
+    return await self.start()
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\crawl4ai\async_webcrawler.py", line 180, in start
+    self.logger.info(f"Crawl4AI {crawl4ai_version}", tag="INIT")
+    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\crawl4ai\async_logger.py", line 238, in info
+    self._log(LogLevel.INFO, message, tag, **kwargs)
+    ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\crawl4ai\async_logger.py", line 227, in _log
+    self.console.print(log_line)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\console.py", line 1697, in print
+    with self:
+         ^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\console.py", line 870, in __exit__
+    self._exit_buffer()
+    ~~~~~~~~~~~~~~~~~^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\console.py", line 826, in _exit_buffer
+    self._check_buffer()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\console.py", line 2042, in _check_buffer
+    self._write_buffer()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\console.py", line 2078, in _write_buffer
+    legacy_windows_render(buffer, LegacyWindowsTerm(self.file))
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\_windows_renderer.py", line 17, in legacy_windows_render
+    term.write_styled(text, style)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\_win32_console.py", line 441, in write_styled
+    self.write_text(text)
+    ~~~~~~~~~~~~~~~^^^^^^
+  File "D:\inceptrix\venv\Lib\site-packages\rich\_win32_console.py", line 402, in write_text
+    self.write(text)
+    ~~~~~~~~~~^^^^^^
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 2: character maps to <undefined>
+During task with name 'ingest' and id 'c94db353-8051-0736-441a-30d6f0ac101d'
+Exception ignored while calling deallocator <function BaseSubprocessTransport.__del__ at 0x00000227DB8BA6C0>:
+Traceback (most recent call last):
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_subprocess.py", line 134, in __del__
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\base_subprocess.py", line 73, in __repr__
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\proactor_events.py", line 80, in __repr__
+  File "C:\Users\Anjali\AppData\Local\Python\pythoncore-3.14-64\Lib\asyncio\windows_utils.py", line 102, in fileno
+ValueError: I/O operation on closed pipe

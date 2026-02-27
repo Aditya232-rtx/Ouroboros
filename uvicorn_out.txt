@@ -1,0 +1,16 @@
+18:38:08 - INFO - ================================================================================
+18:38:08 - INFO - Ouroboros AI v1.0.0 - Logging initialized
+18:38:08 - INFO - Environment: development
+18:38:08 - INFO - Log level: INFO
+18:38:08 - INFO - Log file: logs\app.log
+18:38:08 - INFO - ================================================================================
+18:38:08 - INFO - Ouroboros AI API starting up...
+18:38:08 - INFO - Initializing database...
+18:38:08 - WARNING - Database initialization skipped: (psycopg2.OperationalError) connection to server at "localhost" (::1), port 5432 failed: FATAL:  password authentication failed for user "ouroboros_user"
+
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+18:38:08 - WARNING - Process cleanup skipped: [WinError 2] The system cannot find the file specified
+18:38:08 - INFO - Ouroboros AI API ready to accept requests
+18:38:08 - INFO - Ouroboros AI API shutting down...
+18:38:08 - INFO - Scan executor shutdown complete
+18:38:08 - INFO - Ouroboros AI API shutdown complete

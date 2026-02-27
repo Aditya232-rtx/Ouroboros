@@ -1,0 +1,42 @@
+D:\inceptrix\venv\Lib\site-packages\langchain_core\_api\deprecation.py:26: UserWarning: Core Pydantic V1 functionality isn't compatible with Python 3.14 or greater.
+  from pydantic.v1.fields import FieldInfo as FieldInfoV1
+D:\inceptrix\venv\Lib\site-packages\requests\__init__.py:113: RequestsDependencyWarning: urllib3 (2.6.3) or chardet (6.0.0.post1)/charset_normalizer (3.4.4) doesn't match a supported version!
+  warnings.warn(
+Failed to initialize Docker: module 'docker' has no attribute 'from_env'
+Failed to send telemetry event ClientStartEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event ClientCreateCollectionEvent: capture() takes 1 positional argument but 3 were given
+Failed to send telemetry event CollectionGetEvent: capture() takes 1 positional argument but 3 were given
+
+=== INITIATING RESEARCH GRAPH ===
+[*] [Node: Ingest] Scraping https://nvd.nist.gov/vuln/detail/CVE-2021-44228?name=CVE-2021-44228...
+[*] Research Agent initiating PentAGI-style scrape for: https://nvd.nist.gov/vuln/detail/CVE-2021-44228?name=CVE-2021-44228
+[INIT].... → Crawl4AI 0.8.0 
+[FETCH]... ↓ 
+https://nvd.nist.gov/vuln/detail/CVE-2021-44228?name=CVE-2021-44228            
+| ✓ | ⏱: 3.63s 
+[SCRAPE].. ◆ 
+https://nvd.nist.gov/vuln/detail/CVE-2021-44228?name=CVE-2021-44228            
+| ✓ | ⏱: 0.31s 
+[COMPLETE] ● 
+https://nvd.nist.gov/vuln/detail/CVE-2021-44228?name=CVE-2021-44228            
+| ✓ | ⏱: 3.96s 
+[+] Scrape successful! Extracted clean Markdown.
+[*] [Node: Reason] Analyzing Markdown with Qwen 1.5b (Attempt 1/3)...
+[+] [Edge: Reflector] Valid JSON detected. Proceeding to Dispatch.
+
+[*] [Node: Dispatch] Intelligence validated. Initiating Handoff...
+[+] Intelligence saved locally to research_findings/CVE-2021-4183_report.json
+[+] Memory updated: CVE-2021-4183 committed to ChromaDB.
+[*] Firing autonomous scan trigger to http://localhost:8000/api/scan...
+[-] API unreachable. (Is the FastAPI server running on port 8000?)
+
+=== FINAL EXTRACTED INTELLIGENCE ===
+{
+  "id": "CVE-2021-4183",
+  "title": "HTTP Header Injection via the 'Referer' Header in Microsoft Edge",
+  "severity": "critical",
+  "cwe": " CWE-79",
+  "cvss": 6.4,
+  "description": "An attacker can exploit a flaw in Microsoft Edge's handling of the 'Referer' header to inject malicious content into websites. This vulnerability allows an attacker to bypass security measures by manipulating the referer header, potentially leading to unauthorized access or other malicious activities.",
+  "poc_code": "http\nPOST /api/vulnerability HTTP/1.1\nHost: vulnerable-site.com\nReferer: <malicious-url>\nContent-Type: application/json\n\n{\n  \"vulnerability\": {\n    \"id\": \"CVE-2021-4183\",\n    \"title\": \"HTTP Header Injection via the 'Referer' Header in Microsoft Edge\",\n    \"severity\": \"critical\",\n    \"cwe\": \"CWE-79\",\n    \"cvss\": 6.4,\n    \"description\": \"An attacker can exploit a flaw in Microsoft Edge's handling of the 'Referer' header to inject malicious content into websites. This vulnerability allows an attacker to bypass security measures by manipulating the referer header, potentially leading to unauthorized access or other malicious activities.\n  }\n}\n"
+}

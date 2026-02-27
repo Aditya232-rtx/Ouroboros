@@ -6,11 +6,11 @@ from .blue_agent import BLUEAgent
 from .documentation_agent import DocumentationAgent
 from .governance_agent import GovernanceAgent
 from .audit_agent import AuditAgent
-from .research_agent import ResearchAgent
+from .research_agent import research_app  # LangGraph compiled Research Agent graph
 
 __all__ = [
     "BaseAgent", "AgentInput", "AgentOutput",
-    "REDAgent", "BLUEAgent", 
+    "REDAgent", "BLUEAgent",
     "DocumentationAgent", "GovernanceAgent", "AuditAgent",
-    "ResearchAgent"
+    "research_app"
 ]

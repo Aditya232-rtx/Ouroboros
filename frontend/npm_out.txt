@@ -1,0 +1,12 @@
+
+> ouroboros-v1@0.1.0 dev
+> next dev
+
+▲ Next.js 16.1.4 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://172.20.228.129:3000
+
+✓ Starting...
+⨯ Unable to acquire lock at D:\inceptrix\frontend\.next\dev\lock, is another instance of next dev running?
+  Suggestion: If you intended to restart next dev, terminate the other process, and then try again.
+[?25h

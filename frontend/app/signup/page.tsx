@@ -45,7 +45,15 @@ export default function SignupPage() {
                 router.push("/login?registered=true");
             } else {
                 const data = await response.json();
-                setError(data.detail || "Signup failed");
+                let errorMessage = "Signup failed";
+                if (typeof data.detail === "string") {
+                    errorMessage = data.detail;
+                } else if (Array.isArray(data.detail) && data.detail.length > 0) {
+                    errorMessage = data.detail[0].msg || JSON.stringify(data.detail);
+                } else if (data.detail) {
+                    errorMessage = JSON.stringify(data.detail);
+                }
+                setError(errorMessage);
             }
         } catch (error) {
             console.error(error);
