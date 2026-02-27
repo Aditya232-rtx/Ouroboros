@@ -1,0 +1,14 @@
+{# Docker hardening patch template #}
+# Ouroboros Auto-Fix: Docker Security
+# File: {{ file_path }}
+
+FROM python:3.11-slim
+
+# Run as non-root
+RUN useradd --create-home appuser
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -r requirements.txt
+USER appuser
+
+HEALTHCHECK --interval=30s CMD curl -f http://localhost:8080/health || exit 1

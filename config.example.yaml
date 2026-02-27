@@ -1,0 +1,37 @@
+# ─────────────────────────────────────────────────────────────────────
+# Ouroboros SDK — Example Configuration
+# Copy this file:  cp config.example.yaml config.yaml
+# Then fill in your GitHub token below.
+# ─────────────────────────────────────────────────────────────────────
+
+github:
+  token: "ghp_PASTE_YOUR_TOKEN_HERE"   # Required — needs repo + PR permissions
+  org: ""                               # Optional: restrict to a specific org
+
+ollama:
+  url: "http://localhost:11434"         # Ollama server (local by default)
+
+models:
+  red_team: "qwen2.5-coder:1.5b"       # Used for attack simulation
+  blue_team: "qwen2.5-coder:1.5b"      # Used for fix generation
+  verifier: "qwen2.5-coder:1.5b"       # Used for safety verification
+
+database:
+  url: "postgresql://ouroboros_user:postgres@localhost:5432/ouroboros"
+
+redis:
+  url: "redis://localhost:6379/0"
+
+scanners:
+  - semgrep
+  - checkov
+  - trivy
+
+production:
+  create_prs: true
+  auto_deploy_low_risk: false           # Set true only after testing
+  generate_docs: true
+
+continuous:
+  poll_interval_seconds: 300            # 5-minute default
+  webhook_secret: ""                    # Optional: for push-based triggering

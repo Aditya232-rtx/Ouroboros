@@ -1,0 +1,51 @@
+[tool.poetry]
+name            = "ouroboros-sdk"
+version         = "1.0.0"
+description     = "Production Security Automation: ANY Git repo → Fixes + PRs + Docs"
+authors         = ["Ouroboros Team <team@ouroboros.ai>"]
+license         = "Apache-2.0"
+readme          = "README.md"
+keywords        = ["security", "ai", "langgraph", "github", "devsecops"]
+classifiers     = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+]
+packages = [{include = "ouroboros"}]
+
+[tool.poetry.dependencies]
+python            = "^3.11"
+langgraph         = ">=1.0.0"
+langchain         = ">=1.0.0"
+langchain-community = ">=0.4.0"
+ollama            = ">=0.6.0"
+semgrep           = ">=1.45.0"
+PyGithub          = ">=2.3.0"
+gitpython         = ">=3.1.40"
+Jinja2            = ">=3.1.2"
+click             = ">=8.1.7"
+PyYAML            = ">=6.0.1"
+redis             = ">=5.0.1"
+psycopg2-binary   = ">=2.9.9"
+reportlab         = ">=4.0.8"
+docker            = ">=7.0.0"
+pydantic          = ">=2.0.0"
+pydantic-settings = ">=2.0.0"
+python-dotenv     = ">=1.0.0"
+tenacity          = ">=9.0.0"
+rich              = ">=13.0.0"
+cryptography      = ">=46.0.0"
+python-jose       = ">=3.5.0"
+SQLAlchemy        = ">=2.0.0"
+
+[tool.poetry.scripts]
+ouroboros = "ouroboros.cli:cli"
+
+[build-system]
+requires      = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.group.dev.dependencies]
+pytest        = ">=7.4.0"
+pytest-asyncio = ">=0.21.0"
+black         = ">=23.0.0"
