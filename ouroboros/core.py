@@ -49,14 +49,15 @@ class Ouroboros:
 
         from ouroboros import Ouroboros
 
-        ouro   = Ouroboros("config.yaml")
+        ouro   = Ouroboros()                     # uses ~/.ouroboros/config.yaml
+        ouro   = Ouroboros("config.yaml")        # or explicit path
         result = await ouro.scan("https://github.com/owner/repo")
         print(result["pr_url"])
     """
 
-    def __init__(self, config_path: str = "config.yaml"):
-        self.config = self._load_config(config_path)
-        self._apply_env_overrides()
+    def __init__(self, config_path: str = None):
+        self.cfg_manager = self._init_config(config_path)
+        self.config = self.cfg_manager.data
 
         # Lazy-loaded heavy components
         self._workflow = None
@@ -275,35 +276,54 @@ class Ouroboros:
         }
 
     # ------------------------------------------------------------------
-    # Config loading
+    # Config loading (unified)
     # ------------------------------------------------------------------
 
-    def _load_config(self, path: str) -> Dict[str, Any]:
+    def _init_config(self, path: str = None):
+        """
+        Load config from the unified ConfigManager.
+
+        Priority:
+          1. Explicit path passed to constructor
+          2. ``config.yaml`` in current directory (legacy compat)
+          3. ``~/.ouroboros/config.yaml`` (SDK standard)
+        """
+        from .config.manager import ConfigManager
+        from pathlib import Path
+
+        if path is not None:
+            p = Path(path)
+            if p.exists():
+                mgr = ConfigManager(str(p))
+                mgr.apply_to_environment()
+                return mgr
+            # If explicit path doesn't exist, try loading as legacy YAML
+            return self._load_legacy_config(path)
+
+        # Try CWD config.yaml first (legacy compat)
+        cwd_config = Path.cwd() / "config.yaml"
+        if cwd_config.exists():
+            mgr = ConfigManager(str(cwd_config))
+            mgr.apply_to_environment()
+            return mgr
+
+        # Default: ~/.ouroboros/config.yaml
+        mgr = ConfigManager()
+        if mgr.exists():
+            mgr.apply_to_environment()
+        return mgr
+
+    def _load_legacy_config(self, path: str):
+        """Backwards compat: load a plain YAML config file."""
+        from .config.manager import ConfigManager
+        from pathlib import Path
+
         p = Path(path)
         if not p.exists():
             raise FileNotFoundError(
                 f"Config not found: {path}\n"
-                "Run:  cp config.example.yaml config.yaml"
+                "Run:  ouroboros init   to create one"
             )
-        with open(p) as fh:
-            return yaml.safe_load(fh) or {}
-
-    def _apply_env_overrides(self):
-        """
-        Push SDK config values into environment variables so the
-        existing ``config.settings.Settings`` (Pydantic) picks them up.
-        """
-        mapping = {
-            ("github", "token"): "GITHUB_TOKEN",
-            ("ollama", "url"): "OLLAMA_BASE_URL",
-            ("database", "url"): "DATABASE_URL",
-            ("redis", "url"): "REDIS_URL",
-        }
-        for keys, env_var in mapping.items():
-            val = self.config
-            for k in keys:
-                val = val.get(k, {}) if isinstance(val, dict) else None
-                if val is None:
-                    break
-            if val and isinstance(val, str):
-                os.environ.setdefault(env_var, val)
+        mgr = ConfigManager(str(p))
+        mgr.apply_to_environment()
+        return mgr

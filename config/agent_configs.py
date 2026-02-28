@@ -32,9 +32,12 @@ class AgentConfig(BaseModel):
 
 
 # ============ RED Agent Configuration ============
+# ── Single model for ALL agents: qwen2.5-coder:3b ──
+SDK_MODEL = "qwen2.5-coder:3b"
+
 RED_AGENT_CONFIG = AgentConfig(
     agent_id="RED",
-    model_name="WhiteRabbitNeo-7B",  # Or configured model from settings
+    model_name=SDK_MODEL,  # Unified: qwen2.5-coder:3b for all agents
     temperature=0.7,
     max_tokens=8192,
     top_p=0.95,
@@ -80,7 +83,7 @@ OUTPUT FORMAT: Valid JSON only, no markdown.""",
 # ============ BLUE Agent Configuration ============
 BLUE_AGENT_CONFIG = AgentConfig(
     agent_id="BLUE",
-    model_name="DeepSeek-Coder-7B",  # Or configured model from settings
+    model_name=SDK_MODEL,  # Unified: qwen2.5-coder:3b for all agents
     temperature=0.3,  # Lower for more deterministic fixes
     max_tokens=8192,
     top_p=0.9,
@@ -126,7 +129,7 @@ OUTPUT FORMAT: Valid JSON only, no markdown.""",
 # ============ GOVERNANCE Agent Configuration ============
 GOVERNANCE_AGENT_CONFIG = AgentConfig(
     agent_id="GOVERNANCE",
-    model_name="Phi-3-mini",  # Or configured model from settings
+    model_name=SDK_MODEL,  # Unified: qwen2.5-coder:3b for all agents
     temperature=0.1,  # Very low for consistent policy evaluation
     max_tokens=4096,
     top_p=0.9,
@@ -164,7 +167,7 @@ OUTPUT: Ordered list of vulnerabilities with justification for priority.""",
 # ============ DOCUMENTATION Agent Configuration ============
 DOCUMENTATION_AGENT_CONFIG = AgentConfig(
     agent_id="DOCUMENTATION",
-    model_name="Phi-3-mini",  # Or configured model from settings
+    model_name=SDK_MODEL,  # Unified: qwen2.5-coder:3b for all agents
     temperature=0.5,
     max_tokens=8192,
     top_p=0.95,
@@ -196,7 +199,7 @@ OUTPUT: Structured markdown or Google Docs format.""",
 # ============ AUDIT Agent Configuration ============
 AUDIT_AGENT_CONFIG = AgentConfig(
     agent_id="AUDIT",
-    model_name="Phi-3-mini",  # Or configured model from settings
+    model_name=SDK_MODEL,  # Unified: qwen2.5-coder:3b for all agents
     temperature=0.0,  # Zero for deterministic audit logging
     max_tokens=2048,
     top_p=1.0,

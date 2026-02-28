@@ -1,6 +1,6 @@
 [tool.poetry]
 name            = "ouroboros-sdk"
-version         = "1.1.0"
+version         = "2.0.0"
 description     = "Production Security Automation: ANY Git repo → Fixes + PRs + Docs"
 authors         = ["Ouroboros Team <team@ouroboros.ai>"]
 license         = "Apache-2.0"
@@ -15,7 +15,7 @@ classifiers     = [
     "Programming Language :: Python :: 3.13",
 ]
 # Bundle ALL packages required for full pipeline:
-#   ouroboros/ = SDK wrapper + CLI
+#   ouroboros/ = SDK wrapper + CLI + init + doctor + config
 #   src/       = agents, orchestration, integrations, security, etc.
 #   config/    = settings, agent configs, security configs
 packages = [
@@ -23,10 +23,12 @@ packages = [
     {include = "src"},
     {include = "config"},
 ]
-# Include Jinja2 templates and example config
+# Include Jinja2 templates, compose file, and example config
 include = [
     "templates/*.j2",
     "config.example.yaml",
+    "docker-compose.sdk.yml",
+    "config/opa_policies/*.rego",
 ]
 
 [tool.poetry.dependencies]
@@ -86,7 +88,7 @@ build-backend = "poetry.core.masonry.api"
 # ── Also support plain `pip install .` via PEP 621 ──
 [project]
 name = "ouroboros-sdk"
-version = "1.1.0"
+version = "2.0.0"
 description = "Production Security Automation: ANY Git repo → Fixes + PRs + Docs"
 requires-python = ">=3.11"
 license = {text = "Apache-2.0"}

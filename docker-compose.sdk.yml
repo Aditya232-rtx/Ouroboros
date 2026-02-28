@@ -1,0 +1,100 @@
+# ──────────────────────────────────────────────────────────────────
+# Ouroboros AI — SDK Infrastructure Compose
+#
+# This is the BUNDLED compose that `ouroboros init` and `ouroboros up`
+# use to spin up all required infrastructure services.
+#
+# Usage:
+#   ouroboros init       ← interactive setup (runs this automatically)
+#   ouroboros up         ← start services
+#   ouroboros down       ← stop services
+#
+# Or manually:
+#   docker compose -f docker-compose.sdk.yml up -d
+# ──────────────────────────────────────────────────────────────────
+
+services:
+  # ── PostgreSQL — Primary database ───────────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: ouroboros-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ouroboros
+      POSTGRES_USER: ouroboros_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ouroboros_postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ouroboros_user -d ouroboros"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ouroboros
+
+  # ── Redis — Cache & pub/sub ─────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ouroboros-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-changeme}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - ouroboros_redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-changeme}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ouroboros
+
+  # ── immudb — Immutable audit ledger ─────────────────────────────
+  immudb:
+    image: codenotary/immudb:latest
+    platform: linux/amd64
+    container_name: ouroboros-immudb
+    restart: unless-stopped
+    environment:
+      IMMUDB_ADMIN_PASSWORD: ${IMMUDB_PASSWORD:-immudb}
+    ports:
+      - "127.0.0.1:3322:3322"
+    volumes:
+      - ouroboros_immudb:/var/lib/immudb
+    networks:
+      - ouroboros
+
+  # ── OPA — Policy engine ─────────────────────────────────────────
+  opa:
+    image: openpolicyagent/opa:latest
+    container_name: ouroboros-opa
+    restart: unless-stopped
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    ports:
+      - "127.0.0.1:8181:8181"
+    volumes:
+      - ${OPA_POLICIES_DIR:-./config/opa_policies}:/policies:ro
+    healthcheck:
+      test: ["CMD", "/opa", "eval", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - ouroboros
+
+volumes:
+  ouroboros_postgres:
+    driver: local
+  ouroboros_redis:
+    driver: local
+  ouroboros_immudb:
+    driver: local
+
+networks:
+  ouroboros:
+    driver: bridge
+    name: ouroboros_network
