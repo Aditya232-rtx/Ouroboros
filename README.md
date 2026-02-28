@@ -210,6 +210,202 @@ asyncio.run(main())
 
 ---
 
+## SDK Installation Guide
+
+The Ouroboros SDK (`ouroboros-sdk`) is a pip-installable package that bundles the full pipeline — agents, orchestration, scanners, and CLI — into a single install.
+
+### Install from source (recommended)
+
+```bash
+# Inside the cloned repo with venv activated:
+pip install -e .          # editable — changes reflect immediately
+# or
+pip install .             # standard install
+```
+
+### Install with Poetry
+
+```bash
+pip install poetry
+poetry install            # installs SDK + dev dependencies
+```
+
+### Build & distribute a wheel
+
+```bash
+pip install poetry && poetry build
+# Creates dist/ouroboros_sdk-1.1.0-py3-none-any.whl
+
+# On another machine:
+pip install ouroboros_sdk-1.1.0-py3-none-any.whl
+```
+
+### Verify the install
+
+```bash
+ouroboros info
+```
+
+Output:
+
+```
+Ouroboros SDK  v1.1.0
+Python         3.11.x
+LangGraph      installed
+Semgrep        installed
+```
+
+> **Windows note:** If `python` opens the Microsoft Store, use `py -3` instead, or run `install.bat` which auto-detects the correct path.
+
+### Configure for SDK use
+
+The SDK reads a `config.yaml` file:
+
+```bash
+cp config.example.yaml config.yaml
+```
+
+Edit `config.yaml` with your GitHub token:
+
+```yaml
+github:
+  token: ghp_YOUR_TOKEN_HERE
+
+ollama:
+  url: http://localhost:11434
+
+database:
+  url: postgresql://ouroboros_user:changeme@localhost:5432/ouroboros
+
+redis:
+  url: redis://:changeme@localhost:6379/0
+```
+
+### CLI commands
+
+| Command | Description |
+|---|---|
+| `ouroboros scan -r <url>` | Full scan → fixes → PR → report |
+| `ouroboros scan -r <url> -p deep` | Deep scan with privesc + lateral movement |
+| `ouroboros scan -r <url> --no-pr` | Scan only, skip PR creation |
+| `ouroboros scan -r <url> -j` | Output results as JSON |
+| `ouroboros watch -r <url> -i 300` | Continuous monitoring every 5 min |
+| `ouroboros info` | Print SDK version & environment info |
+
+```bash
+# Example: deep scan with JSON output, no PR
+ouroboros scan --repo https://github.com/owner/repo --profile deep --no-pr --json-output
+```
+
+### Python API — full reference
+
+```python
+import asyncio
+from ouroboros import Ouroboros
+
+async def main():
+    ouro = Ouroboros("config.yaml")
+
+    # ── Full pipeline (scan → fix → verify → PR → report) ──
+    result = await ouro.scan(
+        "https://github.com/owner/repo",
+        scan_profile="standard",   # "quick" | "standard" | "deep"
+        create_pr=True,            # set False to skip PR creation
+        branch="main",             # target branch
+        user_id="my-app",          # audit trail identifier
+    )
+
+    print(f"Scan ID:    {result['scan_id']}")
+    print(f"Vulns:      {result['vulnerabilities_found']}")
+    print(f"Critical:   {result['critical_count']}")
+    print(f"Fixes:      {result['fixes_generated']}")
+    print(f"Verified:   {result['verified_count']}")
+    print(f"Risk ↓:     {result['risk_reduction_pct']}%")
+    print(f"PR:         {result['pr_url']}")
+    print(f"Report:     {result['docs_path']}")
+    print(f"Deploy OK:  {result['deploy_safe']}")
+
+asyncio.run(main())
+```
+
+### Convenience methods
+
+```python
+# Quick scan (no PR, fast profile)
+result = await ouro.scan_quick("https://github.com/owner/repo")
+
+# Deep scan (privesc + lateral movement checks)
+result = await ouro.scan_deep("https://github.com/owner/repo")
+```
+
+### Standalone helpers (use individual agents)
+
+```python
+# ── RED Agent only (detect vulnerabilities) ──
+vulns = await ouro.detect_vulnerabilities(
+    "https://github.com/owner/repo",
+    profile="standard"
+)
+for v in vulns:
+    print(f"[{v['severity']}] {v['description']} @ {v['location']}")
+
+# ── BLUE Agent only (generate fixes for known vulns) ──
+fixes = await ouro.generate_fixes(vulns, repo_path="/tmp/cloned-repo")
+for f in fixes:
+    print(f"Fix for {f['vuln_id']}: confidence={f['confidence']}")
+
+# ── Create PR from patches ──
+pr_url = await ouro.create_pr(
+    "https://github.com/owner/repo",
+    patches=fixes,
+    branch_prefix="ouroboros/auto-fix"
+)
+print(f"PR: {pr_url}")
+```
+
+### Continuous monitoring (watch mode)
+
+```python
+# Re-scans every 5 minutes, raises PRs on new findings
+await ouro.watch("https://github.com/owner/repo", interval_seconds=300)
+```
+
+### Return value schema
+
+Every `scan()` call returns a dict with these keys:
+
+| Key | Type | Description |
+|---|---|---|
+| `success` | `bool` | `True` if pipeline completed without abort |
+| `scan_id` | `str` | Unique scan identifier (`SCAN-20260228…`) |
+| `vulnerabilities_found` | `int` | Total vulns discovered |
+| `critical_count` | `int` | Vulns with CRITICAL severity or CVSS ≥ 9.0 |
+| `fixes_generated` | `int` | Number of BLUE agent patches |
+| `verified_count` | `int` | Fixes that passed RED re-attack |
+| `risk_reduction_pct` | `int` | Percentage of vulns fixed & verified |
+| `pr_url` | `str \| None` | GitHub PR URL (if `create_pr=True`) |
+| `docs_path` | `str \| None` | Path to generated PDF report |
+| `deploy_safe` | `bool` | `True` if all fixes verified |
+| `errors` | `list` | Any non-fatal errors during the run |
+
+### Package contents
+
+The SDK bundles everything needed for the full pipeline:
+
+```
+ouroboros-sdk (v1.1.0)
+├── ouroboros/          # Public API
+│   ├── __init__.py    # Ouroboros class + __version__
+│   ├── cli.py         # Click CLI (ouroboros command)
+│   └── core.py        # Scan, watch, detect, fix, PR methods
+├── src/               # Internal pipeline (agents, tools, orchestration)
+└── config/            # Settings & agent configs
+```
+
+**Dependencies:** LangGraph, LangChain, Ollama, Semgrep, PyGithub, FastAPI, Redis, SQLAlchemy, ReportLab, Docker SDK, and more — all installed automatically.
+
+---
+
 ## Architecture
 
 ```
