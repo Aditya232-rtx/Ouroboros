@@ -33,9 +33,20 @@ class PentestExecutor:
             scan_started=datetime.now().isoformat()
         )
         self.timeout = 300  # 5 minutes default timeout
+        self._exclude_dockerfile = False  # Set by run_static_analysis when Dockerfile was auto-generated
 
         if self.recon_context:
             self._load_from_recon_context()
+
+    @staticmethod
+    def _is_dockerfile_finding(path_or_target: str) -> bool:
+        """Check if a finding is related to a Dockerfile (auto-generated or not)."""
+        if not path_or_target:
+            return False
+        name = path_or_target.lower().strip().rstrip("/")
+        # Match: "Dockerfile", "/path/to/Dockerfile", "Dockerfile.dev", etc.
+        basename = name.rsplit("/", 1)[-1] if "/" in name else name
+        return basename.startswith("dockerfile") or basename == "dockerfile"
 
     def setup_sandbox(self, repo_url: str) -> str:
         """
@@ -86,14 +97,15 @@ class PentestExecutor:
             "container_id": runner.container_id,
             "compose_project": runner.compose_project,
             "sandbox_path": sandbox_path,
-            "app_url": app_url
+            "app_url": app_url,
+            "dockerfile_auto_generated": runner.dockerfile_auto_generated
         }
         
         if not success:
             logger.warning(f"DAST skipped: {app_url}")
             logger.info("Reason: App may require database/external services not available. Running SAST only (still effective for pattern-based vulnerabilities like SQL injection, XSS, etc.)")
             # Even if it failed to start, we can still do SAST
-            self.run_static_analysis(sandbox_path)
+            self.run_static_analysis(sandbox_path, exclude_dockerfile=runner.dockerfile_auto_generated)
             
             # If start failed, we might still have a container in failed state, so assume we clean it up usually,
             # unless instructed otherwise, but here cleanup usually makes sense if it failed.
@@ -112,7 +124,7 @@ class PentestExecutor:
             self.run_full_scan() # Nmap, Nuclei
             
             # 3. Run SAST tools (on the source code)
-            self.run_static_analysis(sandbox_path)
+            self.run_static_analysis(sandbox_path, exclude_dockerfile=runner.dockerfile_auto_generated)
             
         finally:
             if cleanup:
@@ -129,13 +141,18 @@ class PentestExecutor:
             
         return {"success": True, "scan_result": self.scan_result, "container_info": container_info}
 
-    def run_static_analysis(self, target_path: str):
+    def run_static_analysis(self, target_path: str, exclude_dockerfile: bool = False):
         """Run all SAST/SCA/Secret tools"""
-        logger.info("Running Static Analysis...")
+        if exclude_dockerfile:
+            logger.info("Running Static Analysis... (auto-generated Dockerfile findings will be excluded)")
+        else:
+            logger.info("Running Static Analysis...")
+        self._exclude_dockerfile = exclude_dockerfile
         self.run_semgrep_scan(target_path)
         # self.run_gitleaks_scan(target_path) # Disabled by user request
         self.run_trivy_scan(target_path)
         self.run_checkov_scan(target_path)
+        self._exclude_dockerfile = False  # Reset after scan
 
     def run_semgrep_scan(self, target_path: str) -> Dict:
         """Run Semgrep SAST scan on sandbox"""
@@ -158,6 +175,12 @@ class PentestExecutor:
             results = data.get("results", [])
             for res in results:
                 path = res.get("path", "").replace(base_path + "/", "")
+                
+                # Skip findings from auto-generated Dockerfile
+                if getattr(self, '_exclude_dockerfile', False) and self._is_dockerfile_finding(path):
+                    logger.debug(f"Excluding auto-generated Dockerfile finding: {path}")
+                    continue
+                
                 severity = res.get("extra", {}).get("severity", "medium").capitalize()
                 
                 vuln = Vulnerability(
@@ -239,6 +262,12 @@ class PentestExecutor:
                  data = json.loads(result["stdout"])
                  for res in data.get("Results", []):
                      target = res.get("Target", "Unknown")
+                     
+                     # Skip findings from auto-generated Dockerfile
+                     if getattr(self, '_exclude_dockerfile', False) and self._is_dockerfile_finding(target):
+                         logger.debug(f"Excluding auto-generated Dockerfile findings from target: {target}")
+                         continue
+                     
                      for finding in res.get("Vulnerabilities", []):
                          vuln = Vulnerability(
                              title=f"Dependency: {finding.get('PkgName')} {finding.get('VulnerabilityID')}",
@@ -291,6 +320,12 @@ class PentestExecutor:
                  for report in reports:
                      check_type = report.get("check_type", "IaC")
                      for check in report.get("results", {}).get("failed_checks", []):
+                         # Skip findings from auto-generated Dockerfile
+                         check_file = check.get("file_path", "")
+                         if getattr(self, '_exclude_dockerfile', False) and self._is_dockerfile_finding(check_file):
+                             logger.debug(f"Excluding auto-generated Dockerfile checkov finding: {check.get('check_id')}")
+                             continue
+                         
                          vuln = Vulnerability(
                              title=f"IaC ({check_type}): {check.get('check_id')} - {check.get('check_name')}",
                              severity="Medium", 

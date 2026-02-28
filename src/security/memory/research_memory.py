@@ -1,13 +1,25 @@
 import chromadb
 import json
 import os
+import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 class ResearchMemory:
     def __init__(self, persist_directory="./chroma_db"):
         # Initialize a local persistent vector database
         self.client = chromadb.PersistentClient(path=persist_directory)
-        # Get or create a collection for our vulnerability intelligence
-        self.collection = self.client.get_or_create_collection(name="cve_memory")
+        self._persist_dir = persist_directory
+        try:
+            self.collection = self.client.get_or_create_collection(name="cve_memory")
+        except (KeyError, Exception) as e:
+            # Schema mismatch from a chromadb version change — reset and retry
+            logger.warning("ChromaDB schema mismatch, resetting data: %s", e)
+            del self.client
+            shutil.rmtree(persist_directory, ignore_errors=True)
+            self.client = chromadb.PersistentClient(path=persist_directory)
+            self.collection = self.client.get_or_create_collection(name="cve_memory")
 
     def has_been_researched(self, cve_id: str) -> bool:
         """Checks if a CVE has already been processed."""

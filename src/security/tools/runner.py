@@ -21,6 +21,7 @@ class SandboxRunner:
         self.compose_project: Optional[str] = None
         self.port: int = self._find_free_port()
         self.host_url: str = ""
+        self.dockerfile_auto_generated: bool = False  # Track if we created the Dockerfile
 
     def _find_free_port(self) -> int:
         """Finds a free port on localhost."""
@@ -62,57 +63,382 @@ class SandboxRunner:
             # check for docker-compose
             compose_files = list(self.sandbox_path.glob("docker-compose.y*ml"))
             if compose_files:
+                logger.info("Found docker-compose file, using compose workflow.")
                 return self._start_compose(compose_files[0])
             
             # check for Dockerfile
             if (self.sandbox_path / "Dockerfile").exists():
+                logger.info("Found existing Dockerfile in repository.")
                 return self._start_dockerfile()
 
-            # Attempt to auto-generate Dockerfile
+            # Attempt to auto-generate Dockerfile based on project type
+            logger.info("No Dockerfile found — attempting auto-generation based on project type...")
             if self._generate_dockerfile():
+                self.dockerfile_auto_generated = True
+                logger.info("✅ Dockerfile auto-generated successfully (vulns from it will be excluded). Starting container...")
                 return self._start_dockerfile()
 
-            return False, "No Docker configuration found (Dockerfile or docker-compose.yml)"
+            return False, "No Docker configuration found and could not auto-generate (unsupported project type)"
 
         except Exception as e:
             logger.error(f"Failed to start sandbox: {e}")
             return False, str(e)
 
     def _generate_dockerfile(self) -> bool:
-        """Generates a default Dockerfile based on project type."""
+        """
+        Generates a default Dockerfile based on detected project type.
+        Supports: Node.js, Python, Go, Java (Maven/Gradle), Ruby, PHP, Rust, .NET, static HTML.
+        Intelligently detects the entry point for each language.
+        """
         try:
+            # ── Node.js ──
             if (self.sandbox_path / "package.json").exists():
-                logger.info("Detected Node.js project. Generating Dockerfile...")
-                dockerfile_content = """
-FROM node:18-alpine
-WORKDIR /app
-COPY package*.json ./
-RUN npm install
-COPY . .
-EXPOSE 3000
-CMD ["npm", "start"]
-"""
-                (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
-                return True
+                return self._gen_nodejs_dockerfile()
 
-            elif (self.sandbox_path / "requirements.txt").exists():
-                logger.info("Detected Python project. Generating Dockerfile...")
-                dockerfile_content = """
-FROM python:3.9-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY . .
-EXPOSE 5000
-CMD ["python", "app.py"]
-"""
-                (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
-                return True
-                
+            # ── Python ──
+            if (self.sandbox_path / "requirements.txt").exists() or \
+               (self.sandbox_path / "setup.py").exists() or \
+               (self.sandbox_path / "pyproject.toml").exists() or \
+               (self.sandbox_path / "Pipfile").exists():
+                return self._gen_python_dockerfile()
+
+            # ── Go ──
+            if (self.sandbox_path / "go.mod").exists():
+                return self._gen_go_dockerfile()
+
+            # ── Java (Maven) ──
+            if (self.sandbox_path / "pom.xml").exists():
+                return self._gen_java_maven_dockerfile()
+
+            # ── Java (Gradle) ──
+            if (self.sandbox_path / "build.gradle").exists() or \
+               (self.sandbox_path / "build.gradle.kts").exists():
+                return self._gen_java_gradle_dockerfile()
+
+            # ── Ruby ──
+            if (self.sandbox_path / "Gemfile").exists():
+                return self._gen_ruby_dockerfile()
+
+            # ── PHP (Composer) ──
+            if (self.sandbox_path / "composer.json").exists():
+                return self._gen_php_dockerfile()
+
+            # ── Rust ──
+            if (self.sandbox_path / "Cargo.toml").exists():
+                return self._gen_rust_dockerfile()
+
+            # ── .NET ──
+            csproj = list(self.sandbox_path.glob("*.csproj"))
+            if csproj:
+                return self._gen_dotnet_dockerfile(csproj[0].name)
+
+            # ── Static HTML fallback ──
+            if list(self.sandbox_path.glob("*.html")) or (self.sandbox_path / "index.html").exists():
+                return self._gen_static_dockerfile()
+
+            logger.warning("Could not detect project type for Dockerfile generation.")
             return False
+
         except Exception as e:
             logger.error(f"Failed to generate Dockerfile: {e}")
             return False
+
+    # ────────────────────────── per-language generators ──────────────────────────
+
+    def _gen_nodejs_dockerfile(self) -> bool:
+        """Generate Dockerfile for Node.js projects with smart start-script detection."""
+        logger.info("Detected Node.js project. Generating Dockerfile...")
+        import json as _json
+
+        # Detect the start command from package.json
+        start_cmd = 'node server.js'  # safe default
+        port = 3000
+        try:
+            pkg = _json.loads((self.sandbox_path / "package.json").read_text())
+            scripts = pkg.get("scripts", {})
+            if "start" in scripts:
+                start_cmd = "npm start"
+            elif "dev" in scripts:
+                start_cmd = "npm run dev"
+            elif "serve" in scripts:
+                start_cmd = "npm run serve"
+            else:
+                # Detect main entry from package.json "main" field
+                main = pkg.get("main", "")
+                if main:
+                    start_cmd = f"node {main}"
+                else:
+                    # Search for common entry files
+                    for candidate in ["server.js", "index.js", "app.js", "src/index.js", "src/server.js", "src/app.js"]:
+                        if (self.sandbox_path / candidate).exists():
+                            start_cmd = f"node {candidate}"
+                            break
+        except Exception:
+            pass
+
+        dockerfile_content = f"""FROM node:18-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install --production 2>/dev/null || npm install
+COPY . .
+EXPOSE {port}
+ENV PORT={port}
+CMD {_json.dumps(start_cmd.split())}
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_python_dockerfile(self) -> bool:
+        """Generate Dockerfile for Python projects with smart entry-point detection."""
+        logger.info("Detected Python project. Generating Dockerfile...")
+
+        # Detect entry point
+        entry_cmd = None
+        port = 5000
+
+        # Check for common web frameworks
+        req_text = ""
+        for req_file in ["requirements.txt", "Pipfile", "pyproject.toml", "setup.py"]:
+            p = self.sandbox_path / req_file
+            if p.exists():
+                req_text += p.read_text(errors='ignore').lower()
+
+        is_django = "django" in req_text
+        is_flask = "flask" in req_text
+        is_fastapi = "fastapi" in req_text or "uvicorn" in req_text
+
+        if is_django:
+            # Look for manage.py or wsgi.py
+            manage_files = list(self.sandbox_path.rglob("manage.py"))
+            wsgi_files = list(self.sandbox_path.rglob("wsgi.py"))
+            if wsgi_files:
+                wsgi_rel = wsgi_files[0].relative_to(self.sandbox_path)
+                wsgi_module = str(wsgi_rel).replace("/", ".").replace(".py", "")
+                entry_cmd = f"gunicorn {wsgi_module}:application --bind 0.0.0.0:8000"
+                port = 8000
+            elif manage_files:
+                entry_cmd = "python manage.py runserver 0.0.0.0:8000"
+                port = 8000
+        elif is_fastapi:
+            # Search for the app object
+            for candidate in ["main.py", "app.py", "server.py", "api.py", "src/main.py", "app/main.py"]:
+                if (self.sandbox_path / candidate).exists():
+                    module = candidate.replace("/", ".").replace(".py", "")
+                    entry_cmd = f"uvicorn {module}:app --host 0.0.0.0 --port 8000"
+                    port = 8000
+                    break
+        elif is_flask:
+            for candidate in ["app.py", "main.py", "server.py", "run.py", "wsgi.py", "application.py"]:
+                if (self.sandbox_path / candidate).exists():
+                    entry_cmd = f"python {candidate}"
+                    port = 5000
+                    break
+
+        # Generic fallback: find ANY likely entry point
+        if not entry_cmd:
+            for candidate in ["app.py", "main.py", "server.py", "run.py", "manage.py", "wsgi.py", "index.py"]:
+                if (self.sandbox_path / candidate).exists():
+                    entry_cmd = f"python {candidate}"
+                    break
+
+        # Last resort
+        if not entry_cmd:
+            # Check for __main__.py pattern
+            py_files = list(self.sandbox_path.glob("*.py"))
+            if py_files:
+                entry_cmd = f"python {py_files[0].name}"
+            else:
+                entry_cmd = "python -m http.server 8000"
+                port = 8000
+
+        # Install method
+        install_step = "RUN pip install --no-cache-dir -r requirements.txt"
+        if (self.sandbox_path / "Pipfile").exists():
+            install_step = "RUN pip install pipenv && pipenv install --system --deploy"
+        elif not (self.sandbox_path / "requirements.txt").exists():
+            if (self.sandbox_path / "setup.py").exists():
+                install_step = "RUN pip install --no-cache-dir -e ."
+            elif (self.sandbox_path / "pyproject.toml").exists():
+                install_step = "RUN pip install --no-cache-dir ."
+
+        # Extra deps for frameworks
+        extras = ""
+        if is_django and "gunicorn" not in req_text:
+            extras = "RUN pip install gunicorn\n"
+        elif is_fastapi and "uvicorn" not in req_text:
+            extras = "RUN pip install uvicorn\n"
+
+        import json as _json
+        dockerfile_content = f"""FROM python:3.11-slim
+WORKDIR /app
+COPY . .
+{install_step}
+{extras}EXPOSE {port}
+ENV PORT={port}
+CMD {_json.dumps(entry_cmd.split())}
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_go_dockerfile(self) -> bool:
+        """Generate Dockerfile for Go projects."""
+        logger.info("Detected Go project. Generating Dockerfile...")
+        dockerfile_content = """FROM golang:1.22-alpine AS builder
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -o /server .
+
+FROM alpine:3.19
+COPY --from=builder /server /server
+EXPOSE 8080
+ENV PORT=8080
+CMD ["/server"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_java_maven_dockerfile(self) -> bool:
+        """Generate Dockerfile for Java Maven projects."""
+        logger.info("Detected Java (Maven) project. Generating Dockerfile...")
+        dockerfile_content = """FROM maven:3.9-eclipse-temurin-21 AS builder
+WORKDIR /app
+COPY pom.xml .
+RUN mvn dependency:go-offline -B
+COPY src ./src
+RUN mvn package -DskipTests -B
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/target/*.jar app.jar
+EXPOSE 8080
+ENV PORT=8080
+CMD ["java", "-jar", "app.jar"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_java_gradle_dockerfile(self) -> bool:
+        """Generate Dockerfile for Java Gradle projects."""
+        logger.info("Detected Java (Gradle) project. Generating Dockerfile...")
+        dockerfile_content = """FROM gradle:8-jdk21 AS builder
+WORKDIR /app
+COPY . .
+RUN gradle build -x test --no-daemon
+
+FROM eclipse-temurin:21-jre-alpine
+WORKDIR /app
+COPY --from=builder /app/build/libs/*.jar app.jar
+EXPOSE 8080
+ENV PORT=8080
+CMD ["java", "-jar", "app.jar"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_ruby_dockerfile(self) -> bool:
+        """Generate Dockerfile for Ruby projects."""
+        logger.info("Detected Ruby project. Generating Dockerfile...")
+        # Detect Rails vs generic
+        is_rails = (self.sandbox_path / "config" / "environment.rb").exists() or \
+                    (self.sandbox_path / "bin" / "rails").exists()
+        if is_rails:
+            cmd = '["rails", "server", "-b", "0.0.0.0", "-p", "3000"]'
+        else:
+            # Look for config.ru (Rack app)
+            if (self.sandbox_path / "config.ru").exists():
+                cmd = '["bundle", "exec", "rackup", "--host", "0.0.0.0", "-p", "3000"]'
+            else:
+                cmd = '["ruby", "app.rb"]'
+
+        dockerfile_content = f"""FROM ruby:3.2-slim
+RUN apt-get update -qq && apt-get install -y build-essential libpq-dev nodejs
+WORKDIR /app
+COPY Gemfile Gemfile.lock* ./
+RUN bundle install
+COPY . .
+EXPOSE 3000
+ENV PORT=3000
+CMD {cmd}
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_php_dockerfile(self) -> bool:
+        """Generate Dockerfile for PHP projects."""
+        logger.info("Detected PHP project. Generating Dockerfile...")
+        # Detect Laravel
+        is_laravel = (self.sandbox_path / "artisan").exists()
+        if is_laravel:
+            cmd = '["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]'
+            port = 8000
+        else:
+            cmd = '["php", "-S", "0.0.0.0:8080", "-t", "public"]'
+            port = 8080
+            # Check if there's a public dir; if not serve from root
+            if not (self.sandbox_path / "public").exists():
+                cmd = '["php", "-S", "0.0.0.0:8080"]'
+
+        dockerfile_content = f"""FROM php:8.3-cli
+RUN apt-get update && apt-get install -y unzip git
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+WORKDIR /app
+COPY . .
+RUN composer install --no-interaction --no-dev 2>/dev/null || true
+EXPOSE {port}
+ENV PORT={port}
+CMD {cmd}
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_rust_dockerfile(self) -> bool:
+        """Generate Dockerfile for Rust projects."""
+        logger.info("Detected Rust project. Generating Dockerfile...")
+        dockerfile_content = """FROM rust:1.77-slim AS builder
+WORKDIR /app
+COPY . .
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+COPY --from=builder /app/target/release/* /usr/local/bin/
+EXPOSE 8080
+ENV PORT=8080
+CMD ["app"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_dotnet_dockerfile(self, csproj_name: str) -> bool:
+        """Generate Dockerfile for .NET projects."""
+        logger.info(f"Detected .NET project ({csproj_name}). Generating Dockerfile...")
+        project_name = csproj_name.replace(".csproj", "")
+        dockerfile_content = f"""FROM mcr.microsoft.com/dotnet/sdk:8.0 AS builder
+WORKDIR /app
+COPY . .
+RUN dotnet publish -c Release -o /publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:8.0
+WORKDIR /app
+COPY --from=builder /publish .
+EXPOSE 8080
+ENV ASPNETCORE_URLS=http://+:8080
+CMD ["dotnet", "{project_name}.dll"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
+
+    def _gen_static_dockerfile(self) -> bool:
+        """Generate Dockerfile for static HTML/CSS/JS sites."""
+        logger.info("Detected static site. Generating Dockerfile with nginx...")
+        dockerfile_content = """FROM nginx:alpine
+COPY . /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+"""
+        (self.sandbox_path / "Dockerfile").write_text(dockerfile_content)
+        return True
 
     def _start_compose(self, compose_file: Path) -> Tuple[bool, str]:
         """Start using docker-compose."""
