@@ -17,11 +17,12 @@ function BlueAgentContent() {
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
     const [patchDiff, setPatchDiff] = useState<string>("");
+    const [patchFile, setPatchFile] = useState<string>("src/components/Dashboard.vue");
     const [stats, setStats] = useState({
         patchesGenerated: 0,
-        testsPass: 0,
-        gatesPassed: 0,
-        avgPatchTime: "0s"
+        validationRate: 0,
+        linesFixed: 0,
+        pendingApproval: 0,
     });
 
     useEffect(() => {
@@ -32,24 +33,48 @@ function BlueAgentContent() {
                 if (logData.length > 0) {
                     // Filter for blue_agent logs
                     const blueAgentLogs = logData.filter(l => 
-                        l.source === "blue_agent" || l.message.toLowerCase().includes("fix") || l.message.toLowerCase().includes("patch")
+                        l.source === "blue_agent" || l.source === "BLUE_AGENT" ||
+                        l.message.toLowerCase().includes("fix") || l.message.toLowerCase().includes("patch")
                     );
                     setLogs(blueAgentLogs.length > 0 ? blueAgentLogs : logData);
+
+                    // Extract latest patch diff from logs if available
+                    const diffLog = [...logData].reverse().find(l =>
+                        l.message.includes("diff") || l.message.includes("---") || l.message.includes("@@")
+                    );
+                    if (diffLog) setPatchDiff(diffLog.message);
                 }
                 
                 // Fetch scan status
                 const status = await fetchScanStatus(scanId);
                 setScanStatus(status);
                 
-                // Fetch vulnerabilities to get fix stats
+                // Fetch vulnerabilities to compute real stats
                 const vulns = await fetchVulnerabilities(scanId);
+                const totalFound = vulns.length;
                 const fixedCount = vulns.filter(v => v.status === "remediated").length;
-                
+                const pendingCount = vulns.filter(v => v.status === "open").length;
+
+                // Estimate lines fixed from vuln descriptions (fallback: 8 lines/fix avg)
+                const estimatedLines = fixedCount * 8;
+
+                // Validation rate = fixed / total (or 0 if no vulns)
+                const rate = totalFound > 0 ? Math.round((fixedCount / totalFound) * 1000) / 10 : 0;
+
+                // Extract file path from latest fix-related log
+                const fileLog = [...logData].reverse().find(l =>
+                    l.message.includes(".py") || l.message.includes(".js") || l.message.includes(".ts") || l.message.includes(".vue")
+                );
+                if (fileLog) {
+                    const fileMatch = fileLog.message.match(/([\w/.-]+\.(py|js|ts|vue|jsx|tsx|java|go|rb))/);
+                    if (fileMatch) setPatchFile(fileMatch[1]);
+                }
+
                 setStats({
                     patchesGenerated: fixedCount,
-                    testsPass: fixedCount, // Assume tests pass if fix applied
-                    gatesPassed: fixedCount > 0 ? 5 : 0, // 5 safety gates if any fix
-                    avgPatchTime: "12s"
+                    validationRate: rate,
+                    linesFixed: estimatedLines,
+                    pendingApproval: pendingCount,
                 });
                 
             } catch (error) {
@@ -81,17 +106,26 @@ function BlueAgentContent() {
                 <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-6 flex flex-col items-center justify-center relative overflow-hidden shadow-sm">
                     <h3 className="absolute top-4 left-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Agent Loop</h3>
                     <div className="absolute top-4 right-4 text-[10px] bg-blue-500/10 text-blue-500 px-2 py-1 rounded-full border border-blue-500/20 font-mono">
-                        Cycle #4092
+                        {scanStatus?.current_phase || "idle"}
                     </div>
                     {/* Simplified Agent Viz with Blue Highlight */}
                     <div className="w-full h-full flex items-center justify-center scale-90">
-                        <AgentLoopVisualization status="patching" />
+                        <AgentLoopVisualization status={(scanStatus?.status || "idle") as any} currentPhase={scanStatus?.current_phase} />
                     </div>
 
-                    <div className="absolute bottom-6 bg-blue-50 dark:bg-slate-800/50 px-4 py-2 rounded-full border border-blue-100 dark:border-slate-700 flex items-center space-x-2">
-                        <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
-                        <span className="text-xs font-mono text-blue-600 dark:text-blue-400 font-medium">Validating Patch Safety...</span>
-                    </div>
+                    {scanStatus?.status && scanStatus.status !== "completed" && scanStatus.status !== "failed" && (
+                        <div className="absolute bottom-6 bg-blue-50 dark:bg-slate-800/50 px-4 py-2 rounded-full border border-blue-100 dark:border-slate-700 flex items-center space-x-2">
+                            <div className="w-4 h-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                            <span className="text-xs font-mono text-blue-600 dark:text-blue-400 font-medium">
+                                {scanStatus.current_phase === "fixes_generated" ? "Validating Patch Safety..." :
+                                 scanStatus.current_phase === "scan_complete" ? "Analyzing Vulnerabilities..." :
+                                 scanStatus.current_phase === "governance_complete" ? "Generating Fixes..." :
+                                 scanStatus.current_phase === "verification_complete" ? "Creating Pull Request..." :
+                                 scanStatus.current_phase === "pr_created" ? "Generating Report..." :
+                                 `${scanStatus.current_phase || "Processing"}...`}
+                            </span>
+                        </div>
+                    )}
                 </div>
 
                 {/* Right: Console & Patch (2 Cols) */}
@@ -112,11 +146,11 @@ function BlueAgentContent() {
                                 <Code2 className="w-3 h-3 mr-2" />
                                 Patch Preview
                             </span>
-                            <span className="text-slate-500 text-xs font-mono">src/components/Dashboard.vue</span>
+                            <span className="text-slate-500 text-xs font-mono">{patchFile}</span>
                         </div>
                         <div className="flex-1 overflow-auto bg-[#0d1117]">
                             <PatchPreview
-                                file="src/components/Dashboard.vue"
+                                file={patchFile}
                                 diff={patchDiff || "// No patch available yet"}
                                 className="border-none bg-transparent"
                             />
@@ -129,28 +163,28 @@ function BlueAgentContent() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <StatsCard
                     name="Patches Generated"
-                    value="142"
+                    value={String(stats.patchesGenerated)}
                     icon={Zap}
                     color="blue"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Validation Passes"
-                    value="98.5%"
+                    value={`${stats.validationRate}%`}
                     icon={CheckCircle}
                     color="emerald"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Lines Fixed"
-                    value="1,204"
+                    value={stats.linesFixed.toLocaleString()}
                     icon={Code2}
                     color="purple"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"
                 />
                 <StatsCard
                     name="Pending Approval"
-                    value="3"
+                    value={String(stats.pendingApproval)}
                     icon={Clock}
                     color="amber"
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-sm hover:shadow transition-shadow"

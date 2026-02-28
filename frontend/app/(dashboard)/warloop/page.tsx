@@ -177,7 +177,7 @@ function WarRoomContent() {
                         style={{ backgroundImage: 'linear-gradient(#64748b 1px, transparent 1px), linear-gradient(90deg, #64748b 1px, transparent 1px)', backgroundSize: '40px 40px' }}
                     />
 
-                    <AgentLoopVisualization status={(scanStatus?.status || "idle") as any} />
+                    <AgentLoopVisualization status={(scanStatus?.status || "idle") as any} currentPhase={scanStatus?.current_phase} />
                 </div>
 
                 {/* Right: Terminal Logs */}
