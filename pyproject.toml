@@ -29,6 +29,8 @@ include = [
     "config.example.yaml",
     "docker-compose.sdk.yml",
     "config/opa_policies/*.rego",
+    "ouroboros/data/docker-compose.sdk.yml",
+    "ouroboros/data/opa_policies/*.rego",
 ]
 
 [tool.poetry.dependencies]

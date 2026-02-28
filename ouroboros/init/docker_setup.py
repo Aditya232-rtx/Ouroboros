@@ -3,9 +3,16 @@ ouroboros/init/docker_setup.py — Docker infrastructure management.
 
 Brings up PostgreSQL, Redis, immudb, OPA via docker compose and waits
 for all health checks to pass.
+
+Compose-file resolution order (first match wins):
+  1. ``~/.ouroboros/docker-compose.sdk.yml``  (extracted during init)
+  2. ``<CWD>/docker-compose.sdk.yml``         (cloned repo)
+  3. ``ouroboros/data/docker-compose.sdk.yml`` (bundled in package)
+  4. ``<CWD>/docker-compose.yml``             (legacy fallback)
 """
 
 import os
+import shutil
 import subprocess
 import time
 import logging
@@ -14,24 +21,100 @@ from typing import Optional
 
 import click
 
-logger = logging.getLogger("ouroboros.init.docker_setup")
+from ouroboros.config.manager import get_ouroboros_home
 
-# The bundled compose file shipped with the SDK
-_COMPOSE_FILE = Path(__file__).resolve().parent.parent.parent / "docker-compose.sdk.yml"
-# Fallback: if running from cloned repo, use root compose
-_COMPOSE_FALLBACK = Path(__file__).resolve().parent.parent.parent / "docker-compose.yml"
+logger = logging.getLogger("ouroboros.init.docker_setup")
 
 
 def get_compose_file() -> Path:
-    """Return the best available compose file."""
-    if _COMPOSE_FILE.exists():
-        return _COMPOSE_FILE
-    if _COMPOSE_FALLBACK.exists():
-        return _COMPOSE_FALLBACK
+    """
+    Return the best available compose file.
+
+    Search order:
+      1. ~/.ouroboros/docker-compose.sdk.yml  (extracted during init)
+      2. CWD/docker-compose.sdk.yml          (cloned repo)
+      3. Package bundled data directory       (pip-installed)
+      4. CWD/docker-compose.yml              (legacy fallback)
+    """
+    home = get_ouroboros_home()
+
+    candidates = [
+        home / "docker-compose.sdk.yml",
+        Path.cwd() / "docker-compose.sdk.yml",
+    ]
+
+    # Package-bundled file (always present inside ouroboros/data/)
+    try:
+        from ouroboros.data import COMPOSE_FILE as _pkg_compose
+        candidates.append(_pkg_compose)
+    except ImportError:
+        pass
+
+    # Legacy fallback
+    candidates.append(Path.cwd() / "docker-compose.yml")
+
+    for cf in candidates:
+        if cf.exists():
+            logger.debug("Using compose file: %s", cf)
+            return cf
+
     raise FileNotFoundError(
-        "Cannot find docker-compose.sdk.yml or docker-compose.yml.\n"
-        "Make sure you're running from the Ouroboros project directory."
+        "Cannot find docker-compose.sdk.yml.\n"
+        "Run 'ouroboros init' first, or run from the Ouroboros project directory."
     )
+
+
+def extract_compose_to_home() -> Path:
+    """
+    Copy the bundled compose file + OPA policies to ``~/.ouroboros/``
+    so Docker Compose can reference them from a stable location.
+
+    Returns the path to the extracted compose file.
+    """
+    home = get_ouroboros_home()
+    home.mkdir(parents=True, exist_ok=True)
+
+    dest_compose = home / "docker-compose.sdk.yml"
+
+    # Find the source: either the package data dir or CWD
+    src_compose = None
+    try:
+        from ouroboros.data import COMPOSE_FILE as _pkg
+        if _pkg.exists():
+            src_compose = _pkg
+    except ImportError:
+        pass
+
+    if not src_compose:
+        cwd_compose = Path.cwd() / "docker-compose.sdk.yml"
+        if cwd_compose.exists():
+            src_compose = cwd_compose
+
+    if src_compose and (not dest_compose.exists() or src_compose != dest_compose):
+        shutil.copy2(src_compose, dest_compose)
+        logger.debug("Extracted compose → %s", dest_compose)
+
+    # Extract OPA policies
+    opa_dest = home / "opa_policies"
+    opa_dest.mkdir(parents=True, exist_ok=True)
+
+    try:
+        from ouroboros.data import OPA_POLICIES_DIR as _pkg_opa
+        if _pkg_opa.exists():
+            for rego in _pkg_opa.glob("*.rego"):
+                shutil.copy2(rego, opa_dest / rego.name)
+    except ImportError:
+        pass
+
+    # Also try CWD for cloned-repo case
+    cwd_opa = Path.cwd() / "config" / "opa_policies"
+    if cwd_opa.exists():
+        for rego in cwd_opa.glob("*.rego"):
+            dest = opa_dest / rego.name
+            if not dest.exists():
+                shutil.copy2(rego, dest)
+
+    return dest_compose
 
 
 def get_compose_cmd(compose_file: Optional[Path] = None) -> list:

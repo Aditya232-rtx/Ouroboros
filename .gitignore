@@ -55,6 +55,7 @@ models/
 logs/
 *.log
 data/
+!ouroboros/data/
 outputs/
 strix/
 neurosploit/

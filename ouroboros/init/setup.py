@@ -85,14 +85,23 @@ def run_init(skip_docker: bool = False, skip_models: bool = False, yes: bool = F
     if skip_docker:
         click.echo("   ⏭️  Skipped (--skip-docker)")
     else:
-        from .docker_setup import docker_up, wait_for_services, init_databases
+        from .docker_setup import docker_up, wait_for_services, init_databases, extract_compose_to_home
 
-        # Set OPA policies path
-        project_root = _find_project_root()
-        if project_root:
-            opa_dir = project_root / "config" / "opa_policies"
-            if opa_dir.exists():
-                os.environ["OPA_POLICIES_DIR"] = str(opa_dir)
+        # Extract compose file + OPA policies to ~/.ouroboros/
+        compose_path = extract_compose_to_home()
+        click.echo(f"   ✅ Compose file → {compose_path}")
+
+        # Set OPA policies path to the extracted copy in ~/.ouroboros/
+        opa_dir = get_ouroboros_home() / "opa_policies"
+        if opa_dir.exists():
+            os.environ["OPA_POLICIES_DIR"] = str(opa_dir)
+        else:
+            # Fallback: check project root
+            project_root = _find_project_root()
+            if project_root:
+                fallback_opa = project_root / "config" / "opa_policies"
+                if fallback_opa.exists():
+                    os.environ["OPA_POLICIES_DIR"] = str(fallback_opa)
 
         ok = docker_up()
         if not ok:
