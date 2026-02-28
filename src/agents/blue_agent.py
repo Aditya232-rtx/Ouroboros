@@ -446,13 +446,46 @@ For each vulnerability, provide:
         The model is prompted to:
         1. Trace the root cause (not just see the symptom)
         2. Analyze the data flow
+                    # --- Jira MCP Integration ---
+                    # If no fix passes all gates, raise a Jira ticket
+                    if not statistics["all_gates_passed"]:
+                        self.logger.info("No valid fix found, raising Jira ticket via MCP...")
+                        jira_result = self.raise_jira_ticket(input_data)
+                        statistics["jira_ticket"] = jira_result
         3. Fix at source with defense-in-depth
         4. Generate tests to verify the fix
         """
         # Try to read actual file content if sandbox path provided
         sandbox_path = vuln_data.get('sandbox_path')
         file_path = vuln_data.get('vulnerability_location', {}).get('file', '')
-        
+
+    def raise_jira_ticket(self, vuln_data: Dict[str, Any]) -> dict:
+        """
+        Create a Jira ticket via MCP for unresolved vulnerability.
+        """
+        import requests
+        from config.settings import mcp
+        url = mcp['jira']['url'] + '/issue'
+        headers = {
+            'Authorization': f'Bearer {mcp["jira"]["api_key"]}',
+            'Content-Type': 'application/json'
+        }
+        summary = f"Unresolved Vulnerability: {vuln_data.get('vulnerability_type', 'Unknown')} ({vuln_data.get('vulnerability_id', '')})"
+        description = vuln_data.get('vulnerable_code', '')
+        JIRA_PROJECT_KEY = "OUROBOROS"  # <-- Set your actual Jira project key here
+        data = {
+            "fields": {
+                "project": {"key": JIRA_PROJECT_KEY},
+                "summary": summary,
+                "description": description,
+                "issuetype": {"name": "Bug"}
+            }
+        }
+        try:
+            resp = requests.post(url, headers=headers, json=data)
+            return resp.json()
+        except Exception as e:
+            return {"error": str(e)}
         actual_code = self._read_file_content(sandbox_path, file_path)
         if actual_code:
             vuln_data['vulnerable_code'] = actual_code

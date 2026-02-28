@@ -78,6 +78,14 @@ class Settings(BaseSettings):
     # Paths
     semgrep_rules: str = "p/security-audit"
 
+# Jira MCP integration example
+mcp = {
+    'jira': {
+        'api_key': 'ATATT3xFfGF0PIyuBtEyDVjEe_ewuYeijWQdY_RvF8Bwn8f1h-QFsndxEg1-Lwh0Sh87yQEyfdaCF3Ejv_EaNGsibLp9bvU0QeVMyhx5YZgQ9RLjvB9QEgmdzqNA9Rwm6cB7Mah7Dm2Slh0dkAszwgi7ASowyI1wHVH0zBpCY_BIO275BtFQGXM=16E53A04',
+        'url': 'https://api.atlassian.com/ex/jira/<cloud-id>/rest/api/3'
+    }
+}
+
     @model_validator(mode="after")
     def validate_critical_settings(self):
         """Validate that critical settings are not defaults."""
