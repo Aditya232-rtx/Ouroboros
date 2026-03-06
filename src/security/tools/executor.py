@@ -254,7 +254,13 @@ class PentestExecutor:
                  logger.warning("Trivy not installed.")
                  return {}
         
-        cmd = [cmd_path, "fs", target_path, "--format", "json", "--scanners", "vuln,config", "--quiet"]
+        # Build command with extended timeout for DB downloads
+        cmd = [cmd_path, "fs", target_path, "--format", "json", "--scanners", "vuln,config", "--quiet", "--timeout", "10m"]
+        
+        # Check if DB exists, if not warn but continue - scan may work with offline mode
+        trivy_db_path = os.path.expanduser("~/.cache/trivy/db")
+        if not os.path.exists(trivy_db_path):
+            logger.warning("Trivy vulnerability DB not found. Run 'trivy image --download-db-only' to download it. Continuing with scan...")
         result = self._run_command(cmd)
         
         if result["success"] and result["stdout"]:

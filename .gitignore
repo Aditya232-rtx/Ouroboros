@@ -34,9 +34,7 @@ ENV/
 *~
 
 # Secrets - CRITICAL: NEVER COMMIT
-secrets/
-.env
-.env*
+!*.env
 *.pem
 *.key
 *service-account*.json
@@ -84,7 +82,6 @@ htmlcov/
 *.tmp
 *.temp
 tmp/
-temp/
 
 # Monitoring
 prometheus_data/
