@@ -22,29 +22,29 @@ class ModelConfig:
 
 
 # RED Agent Model Configuration
-# Qwen2.5-Coder 3B for testing (~2.4 GB)
+# Qwen2.5.1-Coder 7B Instruct (Q4_K_L)
 RED_AGENT_CONFIG = ModelConfig(
-    name="Qwen2.5-Coder-3B",
-    model_path="models/Qwen2.5-Coder-3B-Instruct-abliterated-Q4_K_M.gguf",
+    name="Qwen2.5.1-Coder-7B",
+    model_path="/Users/adityajadhav/Downloads/Qwen2.5.1-Coder-7B-Instruct-Q4_K_L.gguf",
     temperature=0.7,  # Creative exploit generation
     max_tokens=2048,
-    n_ctx=4096,  # Reduced context for smaller model
+    n_ctx=8192,
     top_p=0.9,
-    n_gpu_layers=25,  # Reduced for smaller model
+    n_gpu_layers=35,
     repeat_penalty=1.1,
     stop_sequences=["```", "END_OF_POC"]
 )
 
 # BLUE Agent Model Configuration
-# Qwen2.5-Coder-3B-Instruct (Abliterated) - Better reasoning and instruction following
+# Qwen2.5.1-Coder-7B-Instruct
 BLUE_AGENT_CONFIG = ModelConfig(
-    name="Qwen2.5-Coder-3B-Blue",
-    model_path="models/Qwen2.5-Coder-3B-Instruct-abliterated-Q8_0.gguf",
+    name="Qwen2.5.1-Coder-7B-Blue",
+    model_path="/Users/adityajadhav/Downloads/Qwen2.5.1-Coder-7B-Instruct-Q4_K_L.gguf",
     temperature=0.7,  # Creative yet focused fix generation
     max_tokens=2048,
-    n_ctx=8192,  # Larger context for better code understanding
+    n_ctx=8192,
     top_p=0.85,
-    n_gpu_layers=35,  # More layers for Q8 model
+    n_gpu_layers=35,
     repeat_penalty=1.05,
     stop_sequences=["<|im_end|>", "</s>", "END_OF_FIX"]
 )

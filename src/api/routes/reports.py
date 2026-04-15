@@ -246,6 +246,43 @@ async def download_initial_report(scan_id: str) -> StreamingResponse:
         db.close()
 
 
+@router.get(
+    "/scan/{scan_id}/final-report",
+    summary="Download final PDF report",
+    description="Download the final PDF report generated at the end of the workflow.",
+)
+async def download_final_report(scan_id: str) -> StreamingResponse:
+    """Download the final PDF report for a scan."""
+    from src.database.session import SessionLocal
+    from src.database.models import Scan
+
+    db = SessionLocal()
+    try:
+        scan = db.query(Scan).filter(Scan.scan_id == scan_id).first()
+        if not scan:
+            raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
+
+        meta = scan.scan_metadata or {}
+        pdf_path = scan.report_url or meta.get("final_report_url")
+
+        if not pdf_path or not os.path.exists(pdf_path):
+            raise HTTPException(status_code=404, detail="Final report not found")
+
+        def _iter_file():
+            with open(pdf_path, "rb") as f:
+                yield from f
+
+        return StreamingResponse(
+            _iter_file(),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="ouroboros_final_report_{scan_id}.pdf"'
+            }
+        )
+    finally:
+        db.close()
+
+
 def _generate_json_report(result: dict, request: ReportRequest) -> dict:
     """Generate JSON format report."""
     report = {

@@ -167,6 +167,47 @@ class GitHubClient:
             raise ValueError("GitHub client not initialized")
         return self.client.get_user().login
 
+    def resolve_base_branch(self, repo_full_name: str, preferred_branch: Optional[str] = None) -> str:
+        """
+        Resolve a safe base branch for operations like clone/PR creation.
+
+        If the preferred branch does not exist, fall back to the repository's
+        default branch.
+
+        Args:
+            repo_full_name: Repository in format "owner/repo"
+            preferred_branch: User-requested branch (optional)
+
+        Returns:
+            A valid branch name to use as base
+        """
+        preferred_branch = preferred_branch or "main"
+
+        if not self.client:
+            logger.warning("GitHub client not initialized; using preferred branch fallback")
+            return preferred_branch
+
+        repo = self.client.get_repo(repo_full_name)
+        default_branch = repo.default_branch or "main"
+
+        if preferred_branch:
+            try:
+                branch = repo.get_branch(preferred_branch)
+                canonical_branch = getattr(branch, "name", preferred_branch)
+                if canonical_branch != preferred_branch:
+                    logger.warning(
+                        f"Requested branch '{preferred_branch}' resolved to canonical branch "
+                        f"'{canonical_branch}' in {repo_full_name}"
+                    )
+                return canonical_branch
+            except GithubException:
+                logger.warning(
+                    f"Requested branch '{preferred_branch}' not found in {repo_full_name}; "
+                    f"falling back to default branch '{default_branch}'"
+                )
+
+        return default_branch
+
     def set_remote(
         self,
         repo_path: Path,

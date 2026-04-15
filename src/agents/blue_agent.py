@@ -6,6 +6,7 @@ Secure fix generation using DeepSeek-R1-Distill-Qwen-7B with chain-of-thought re
 import logging
 import json
 import re
+import difflib
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from pathlib import Path
@@ -446,46 +447,12 @@ For each vulnerability, provide:
         The model is prompted to:
         1. Trace the root cause (not just see the symptom)
         2. Analyze the data flow
-                    # --- Jira MCP Integration ---
-                    # If no fix passes all gates, raise a Jira ticket
-                    if not statistics["all_gates_passed"]:
-                        self.logger.info("No valid fix found, raising Jira ticket via MCP...")
-                        jira_result = self.raise_jira_ticket(input_data)
-                        statistics["jira_ticket"] = jira_result
         3. Fix at source with defense-in-depth
         4. Generate tests to verify the fix
         """
         # Try to read actual file content if sandbox path provided
         sandbox_path = vuln_data.get('sandbox_path')
         file_path = vuln_data.get('vulnerability_location', {}).get('file', '')
-
-    def raise_jira_ticket(self, vuln_data: Dict[str, Any]) -> dict:
-        """
-        Create a Jira ticket via MCP for unresolved vulnerability.
-        """
-        import requests
-        from config.settings import mcp
-        url = mcp['jira']['url'] + '/issue'
-        headers = {
-            'Authorization': f'Bearer {mcp["jira"]["api_key"]}',
-            'Content-Type': 'application/json'
-        }
-        summary = f"Unresolved Vulnerability: {vuln_data.get('vulnerability_type', 'Unknown')} ({vuln_data.get('vulnerability_id', '')})"
-        description = vuln_data.get('vulnerable_code', '')
-        JIRA_PROJECT_KEY = "OUROBOROS"  # <-- Set your actual Jira project key here
-        data = {
-            "fields": {
-                "project": {"key": JIRA_PROJECT_KEY},
-                "summary": summary,
-                "description": description,
-                "issuetype": {"name": "Bug"}
-            }
-        }
-        try:
-            resp = requests.post(url, headers=headers, json=data)
-            return resp.json()
-        except Exception as e:
-            return {"error": str(e)}
         actual_code = self._read_file_content(sandbox_path, file_path)
         if actual_code:
             vuln_data['vulnerable_code'] = actual_code
@@ -526,6 +493,13 @@ For each vulnerability, provide:
 ✅ MUST validate all user inputs
 ✅ MUST encode/escape all outputs
 ✅ MUST use safe APIs (parameterized queries, etc)
+
+## NON-NEGOTIABLE PATCH DISCIPLINE (HARDCODED RULE):
+- Think and implement like a **senior developer + security lead**.
+- NEVER replace entire files or unrelated large blocks.
+- Apply a **surgical patch**: modify only the vulnerable lines and the minimum adjacent lines needed for correctness.
+- Preserve existing architecture, business logic, function signatures, and formatting unless directly required for the fix.
+- If a broad rewrite seems necessary, refuse it and provide a narrower targeted fix.
 
 ## YOUR TASK: Generate 2 DISTINCT FIX OPTIONS
 
@@ -654,6 +628,37 @@ IMPORTANT:
         
         self.logger.info(f"Generated {len(fixes)} distinct fix options")
         return fixes[:3]  # Return exactly 3 options
+
+    def _is_overbroad_replacement(self, before: str, after: str) -> bool:
+        """
+        Hard guardrail to prevent full-file rewrites.
+
+        Returns True when the generated fix appears to replace too much code
+        compared to the vulnerable snippet.
+        """
+        if not before or not after:
+            return False
+
+        before_lines = [l for l in before.splitlines() if l.strip()]
+        after_lines = [l for l in after.splitlines() if l.strip()]
+        b = len(before_lines)
+        a = len(after_lines)
+
+        if b == 0:
+            return False
+
+        # Strong size-based guards
+        if a >= max(120, b * 8):
+            return True
+        if b <= 20 and a >= 80:
+            return True
+
+        # Similarity guard: very low similarity + much larger output implies rewrite
+        similarity = difflib.SequenceMatcher(None, before, after).ratio()
+        if similarity < 0.25 and a > (b * 3):
+            return True
+
+        return False
     
     def _parse_markdown_response(self, response: str, file_path: str, vuln_code: str, vuln_type: str) -> Optional[Dict[str, Any]]:
         """
@@ -754,6 +759,13 @@ IMPORTANT:
         # Validate we have actual fix code
         if not result["after"] or len(result["after"]) < 5:
             self.logger.warning("No valid fix code extracted")
+            return None
+
+        # Hardcoded rule: reject broad rewrites; enforce surgical patches only
+        if self._is_overbroad_replacement(result["before"], result["after"]):
+            self.logger.warning(
+                "Rejected overbroad fix candidate: replacement appears to rewrite too much code"
+            )
             return None
             
         return result

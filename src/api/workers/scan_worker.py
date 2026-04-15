@@ -109,12 +109,25 @@ def run_scan_in_process(scan_id: str, request_data: Dict[str, Any]) -> None:
         
         # Update scan with results (sanitize enums/dataclasses for JSON)
         safe_result = _json_safe(result)
+        vulnerabilities = safe_result.get("vulnerabilities", []) or []
+        verification_results = safe_result.get("verification_results", []) or []
+        verified_count = sum(
+            1
+            for item in verification_results
+            if isinstance(item, dict) and item.get("verified")
+        )
+
         scan.status = ScanStatus.COMPLETED
         scan.completed_at = datetime.now(timezone.utc)
+        scan.vulnerabilities_found = len(vulnerabilities)
+        scan.fixes_verified = verified_count
+        scan.pr_url = safe_result.get("pr_url") or scan.pr_url
+        scan.pr_number = safe_result.get("pr_number") or scan.pr_number
+        scan.report_url = safe_result.get("final_report_url") or scan.report_url
         scan.scan_metadata = {
             "current_phase": "completed",
-            "vulnerabilities_found": len(safe_result.get("vulnerabilities", [])),
-            "fixes_applied": len(safe_result.get("fixes", [])),
+            "vulnerabilities_found": len(vulnerabilities),
+            "fixes_applied": verified_count,
             "result": safe_result
         }
         db.commit()

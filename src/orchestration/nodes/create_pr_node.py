@@ -133,7 +133,12 @@ async def create_pr_node(state: OuroborosState) -> OuroborosState:
         # ── Extract identifiers ──────────────────────────────────────
         repo_full_name = state["repo_url"].replace("https://github.com/", "").replace(".git", "")
         branch_name = f"ouroboros-fixes-{state['scan_id']}"
-        base_branch = state.get("branch", "main")
+        requested_branch = state.get("branch", "main")
+        base_branch = github_client.resolve_base_branch(repo_full_name, requested_branch)
+        if base_branch != requested_branch:
+            logger.warning(
+                f"Requested branch '{requested_branch}' unavailable; using '{base_branch}' for clone and PR base"
+            )
 
         verified_count = sum(1 for r in state["verification_results"] if r.get("verified"))
         total_vulns = len(state["vulnerabilities"])

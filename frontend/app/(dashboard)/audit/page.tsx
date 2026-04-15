@@ -8,7 +8,7 @@ import { FileText, Download, CheckCircle, Clock, ShieldCheck, FileJson, Lock, Za
 import { Button } from "../../components/lightswind/button";
 import { Badge } from "../../components/lightswind/badge";
 import { LogEntry } from "../../lib/types";
-import { downloadReportPdf, fetchLogs, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
+import { downloadFinalReportPdf, fetchLogs, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
 
 function AuditContent() {
     const searchParams = useSearchParams();
@@ -27,7 +27,7 @@ function AuditContent() {
     const handleDownloadPdf = async () => {
         setIsDownloading(true);
         try {
-            await downloadReportPdf(scanId);
+            await downloadFinalReportPdf(scanId);
         } catch (error) {
             console.error("Download failed:", error);
             alert("Failed to download report. Please try again.");
@@ -89,7 +89,7 @@ function AuditContent() {
         loadData();
         const interval = setInterval(loadData, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [scanId]);
 
     return (
         <div className="h-[calc(100vh-8rem)] flex flex-col space-y-4">

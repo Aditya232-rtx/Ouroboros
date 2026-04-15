@@ -67,7 +67,7 @@ class ModelLoader:
         
         # User requested strict SINGLETON model for all agents.
         # All agents scan use the exact same model name.
-        # "ouroboros-blue" is the confirmed tag for Qwen2.5-Coder-3B-Instruct-abliterated-Q8_0.gguf
+        # "ouroboros-blue" tag is now mapped to Qwen2.5.1-Coder-7B-Instruct-Q4_K_L.gguf
         self.shared_model_name = "ouroboros-blue" 
         
         self.model_name_mapping = {
@@ -75,6 +75,8 @@ class ModelLoader:
             "WhiteRabbitNeo-7B": self.shared_model_name,
             "Qwen2.5-Coder-3B": self.shared_model_name,
             "Qwen2.5-Coder-3B-Blue": self.shared_model_name,
+            "Qwen2.5.1-Coder-7B": self.shared_model_name,
+            "Qwen2.5.1-Coder-7B-Blue": self.shared_model_name,
             "DeepSeek-Coder-1.3B": self.shared_model_name,
             "Phi-3-mini-4k": self.shared_model_name,
             "red": self.shared_model_name,

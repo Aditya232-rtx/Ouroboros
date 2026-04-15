@@ -66,6 +66,7 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
     # Extract vulnerabilities from result
     vulnerabilities = []
     fixes = []
+    verified_ids = set()
     
     try:
         # Get metadata for governance info
@@ -81,6 +82,14 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
                 v_id = item.get("vulnerability_id")
                 if v_id:
                     gov_map[v_id] = item
+
+        # Build verified vulnerability set for accurate fix counting/status
+        verification_results = result.get("verification_results", []) or []
+        verified_ids = {
+            item.get("vulnerability_id")
+            for item in verification_results
+            if isinstance(item, dict) and item.get("verified") and item.get("vulnerability_id")
+        }
 
         # Use result vulnerabilities if available (final state)
         raw_vulns = result.get("vulnerabilities", []) or []
@@ -129,9 +138,16 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
         for fix in (result.get("fixes", []) or []):
             if not isinstance(fix, dict):
                 continue
+            vulnerability_id = fix.get("vulnerability_id", "unknown")
+            fix_status = fix.get("status", "pending")
+
+            # If fix status wasn't materialized into "applied", infer from verification results
+            if fix_status != "applied" and vulnerability_id in verified_ids:
+                fix_status = "applied"
+
             fixes.append(FixSummary(
-                vulnerability_id=fix.get("vulnerability_id", "unknown"),
-                status=fix.get("status", "pending"),
+                vulnerability_id=vulnerability_id,
+                status=fix_status,
                 file=fix.get("file", "unknown"),
                 lines_changed=fix.get("lines_changed", 0),
             ))
@@ -139,6 +155,12 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
         logger.error(f"Error building detail response for scan {scan_id}: {e}")
         # Continue with empty lists rather than crashing
     
+    fixes_applied_count = len([f for f in fixes if f.status == "applied"])
+
+    # Fallback for pipelines where fixes exist but explicit "applied" status is not emitted
+    if fixes_applied_count == 0 and verified_ids:
+        fixes_applied_count = len(verified_ids)
+
     return ScanDetailResponse(
         scan_id=scan_id,
         repo_url=scan_data.get("repo_url"), # <--- Added
@@ -146,7 +168,7 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
         progress_percent=scan_data.get("progress_percent", 0),
         current_phase=scan_data.get("current_phase", "unknown"),
         vulnerabilities_found=len(vulnerabilities),
-        fixes_applied=len([f for f in fixes if f.status == "applied"]),
+        fixes_applied=fixes_applied_count,
         started_at=scan_data["started_at"],
         completed_at=scan_data.get("completed_at"),
         error_message=scan_data.get("error_message"),
