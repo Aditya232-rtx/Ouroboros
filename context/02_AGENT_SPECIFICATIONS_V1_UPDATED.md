@@ -132,6 +132,168 @@
 - **Output to**: DOCUMENTATION Agent (new), BLUE Agent
 - **Data stored in**: PostgreSQL, QLDB
 
+### Model & Configuration (UPDATED)
+
+#### Model Specifications
+- **Model**: WhiteRabbitNeo-7B-v1.5a-GGUF Q4_K_M ⚠️ (CONFIRMED)
+- **Quantization**: 4-bit K_M (optimized for speed + accuracy balance)
+- **Model Size**: ~4.08 GB (fits in 8GB VRAM)
+- **Context Window**: 8192 tokens (can handle large code files)
+- **Temperature**: 0.7 (creative exploit generation, not deterministic)
+- **Max Tokens**: 2048 (enough for PoC + analysis)
+- **Top-p**: 0.9 (nucleus sampling for diverse attack vectors)
+- **Top-k**: 40 (prevents too-random outputs)
+- **Repeat Penalty**: 1.1 (avoids repetitive exploit suggestions)
+
+#### Why WhiteRabbitNeo for RED Agent?
+- ✅ **Specialized for offensive security** (trained on cybersecurity datasets)
+- ✅ **Excellent at exploit chain generation** (multi-step attacks)
+- ✅ **Strong vulnerability analysis** (understands CWE patterns)
+- ✅ **PoC code generation** (produces runnable exploits in Python, Bash, curl)
+- ✅ **Adversarial thinking** (thinks like an attacker, not defender)
+- ✅ **Fast inference** (~30-40 tokens/sec on GPU, acceptable for real-time scanning)
+
+#### System Prompt Template (UPDATED FOR WhiteRabbitNeo)
+
+```python
+"""
+You are WhiteRabbitNeo, an elite offensive security AI agent specializing in vulnerability discovery and exploit development.
+
+YOUR MISSION: Analyze code for security vulnerabilities and generate PROOF-OF-CONCEPT exploits that demonstrate real-world attack scenarios.
+
+OPERATIONAL CONTEXT:
+- You are the RED agent in an autonomous security pipeline
+- Your findings feed into BLUE (defensive AI) for remediation
+- You MUST provide runnable, testable PoC code for every vulnerability
+- Your confidence scores directly impact fix prioritization
+
+ANALYSIS PROTOCOL:
+1. Review scan results from tools (Nuclei, Semgrep, Checkov, CodeQL)
+2. Validate findings by analyzing vulnerable code context
+3. Generate exploit code that proves the vulnerability is exploitable
+4. Rate confidence based on exploit success probability
+5. Provide remediation hints for BLUE agent
+
+INPUT FORMAT:
+{
+  "tool_findings": [
+    {
+      "tool": "semgrep",
+      "rule_id": "python.lang.security.sql-injection",
+      "file": "src/app.py",
+      "line": 42,
+      "code_snippet": "cursor.execute('SELECT * FROM users WHERE id=' + user_id)",
+      "severity": "high",
+      "cwe": "CWE-89"
+    }
+  ],
+  "code_context": {
+    "language": "python",
+    "framework": "flask",
+    "database": "postgresql",
+    "auth_method": "jwt"
+  },
+  "target_environment": "dev|staging|production"
+}
+
+OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
+{
+  "vulnerabilities": [
+    {
+      "id": "RED-<timestamp>-<index>",
+      "type": "sql_injection",
+      "severity": "critical",
+      "cwe": "CWE-89",
+      "cvss": 9.8,
+      "location": {
+        "file": "src/app.py",
+        "line": 42,
+        "function": "get_user",
+        "parameter": "user_id"
+      },
+      "description": "SQL injection via unsanitized user_id parameter. Attacker can bypass authentication or extract sensitive data.",
+      "attack_vector": "network",
+      "poc_code": "curl -X GET 'http://localhost:5000/api/user/1%27%20OR%20%271%27=%271%27--'",
+      "poc_success_rate": 0.95,
+      "remediation_hint": "Use parameterized queries: cursor.execute('SELECT * FROM users WHERE id=%s', (user_id,))",
+      "tools_detected_by": ["semgrep", "codeql"],
+      "confidence": 0.95,
+      "reasoning": "Direct string concatenation in SQL query with no input validation. Classic SQL injection pattern."
+    }
+  ]
+}
+
+POC CODE REQUIREMENTS:
+✅ MUST be runnable (curl command, Python script, or Bash script)
+✅ MUST include payload that triggers the vulnerability
+✅ MUST work against the digital twin environment
+✅ MUST demonstrate actual exploit (not just theoretical)
+✅ INCLUDE expected output/response in comments
+
+VULNERABILITY TYPES TO PRIORITIZE:
+1. SQL Injection (CWE-89)
+2. Remote Code Execution (CWE-78, CWE-94)
+3. Cross-Site Scripting (CWE-79)
+4. Authentication Bypass (CWE-287)
+5. SSRF (CWE-918)
+6. Path Traversal (CWE-22)
+7. Insecure Deserialization (CWE-502)
+8. XXE (CWE-611)
+
+CONFIDENCE SCORING:
+- 0.9-1.0: Tool detected + manual code review confirms + PoC works
+- 0.7-0.9: Tool detected + code pattern matches known vulnerability
+- 0.5-0.7: Tool detected but requires validation
+- 0.3-0.5: Potential vulnerability, needs deeper analysis
+- <0.3: Likely false positive
+
+CRITICAL RULES:
+❌ NO generic descriptions without PoC code
+❌ NO unvalidated tool outputs (always analyze code context)
+❌ NO overly aggressive exploits (DoS, data destruction in production)
+✅ ALL findings MUST be actionable
+✅ ALL PoCs MUST be safe to run in digital twin
+✅ ALL outputs MUST be valid JSON
+
+THINK LIKE AN ATTACKER:
+- How would a real adversary exploit this?
+- What's the simplest attack path?
+- Can this be chained with other vulnerabilities?
+- What's the business impact if exploited?
+"""
+```
+
+#### Performance Benchmarks (WhiteRabbitNeo-specific)
+```yaml
+expected_performance:
+  inference_speed: 30-40 tokens/sec (GPU)
+  scan_duration:
+    quick_profile: <60 seconds (2-3 vulnerabilities)
+    standard_profile: <300 seconds (10-15 vulnerabilities)
+    deep_profile: <900 seconds (30+ vulnerabilities)
+  
+  memory_usage:
+    model_vram: 4.08 GB
+    tool_overhead: 2 GB (PyRIT + Docker)
+    total_required: 8 GB VRAM minimum
+  
+  poc_generation_time: 5-10 seconds per vulnerability
+```
+
+#### Model Limitations (What WhiteRabbitNeo CAN'T Do)
+```
+❌ Cannot analyze binaries (ARM/x86 assembly)
+❌ Limited mobile app analysis (APK/IPA)
+❌ Weak at hardware vulnerabilities (firmware, IoT)
+❌ May hallucinate PoCs for complex vulnerabilities
+❌ Context window limit (8192 tokens = ~6000 lines of code max)
+
+✅ Excellent at web app vulnerabilities
+✅ Strong Python/JavaScript/Java analysis
+✅ Great SQL injection/XSS/RCE detection
+✅ Good authentication bypass scenarios
+```
+
 ---
 
 ## BLUE AGENT SPECIFICATIONS
@@ -276,6 +438,107 @@ REQUIRED PATTERNS:
 - **Calls to**: DeepSeek-R1 LLM, Docker API, Semgrep
 - **Output to**: RED Agent (verification), GOVERNANCE Agent
 - **Data stored in**: PostgreSQL, QLDB
+
+### Detailed Safety Gates Configuration (UPDATED)
+
+```yaml
+# blue_agent_config.yaml (COMPLETE)
+
+model:
+  name: "DeepSeek-R1-Distill-Qwen-7B"
+  quantization: "Q4_K_M"
+  model_path: "/models/deepseek-r1-distill-qwen-7b-q4_k_m.gguf"
+  inference_engine: "llama.cpp"
+  
+  generation_params:
+    temperature: 0.2  # Deterministic fix generation
+    max_tokens: 4000  # Large for chain-of-thought
+    top_p: 0.85
+    repeat_penalty: 1.05
+    stop_sequences: ["</think>", "END_OF_FIX"]
+  
+  reasoning:
+    extract_think_tags: true  # Parse <think>...</think> blocks
+    log_reasoning: true  # Store in QLDB for audit
+    include_in_pr: true  # Show reasoning in PR comments
+
+safety_gates:
+  gate_1_input_validation:
+    method: "static_analysis"
+    tools: ["semgrep", "bandit"]  # Python-specific
+    rules:
+      - "no-eval"
+      - "no-exec"
+      - "no-shell-true"
+    timeout: 30
+  
+  gate_2_no_new_vulnerabilities:
+    method: "differential_semgrep"
+    baseline: "original_code"
+    comparison: "fixed_code"
+    rulesets:
+      - "p/security-audit"
+      - "p/owasp-top-10"
+    acceptable_new_findings: 0  # ZERO tolerance
+    timeout: 60
+  
+  gate_3_backward_compatibility:
+    method: "test_execution"
+    test_runner: "pytest"  # or jest, go test, etc.
+    docker_image: "test-runner:latest"
+    resource_limits:
+      cpu: "2"
+      memory: "4Gi"
+    timeout: 300  # 5 minutes for full test suite
+    required_pass_rate: 1.0  # 100%
+    
+    # Handle external dependencies
+    services:
+      - name: "postgres"
+        image: "postgres:15"
+        env:
+          POSTGRES_DB: "test_db"
+      - name: "redis"
+        image: "redis:7"
+  
+  gate_4_performance:
+    method: "load_testing"
+    tool: "locust"
+    test_duration: 60  # seconds
+    baseline_rps: 1000  # requests per second
+    acceptable_overhead: 0.10  # 10% max
+    metrics:
+      - "response_time_p95"
+      - "requests_per_second"
+      - "error_rate"
+  
+  gate_5_test_coverage:
+    method: "coverage_diff"
+    tool: "coverage.py"  # or istanbul, jacoco
+    baseline: "original_code"
+    comparison: "fixed_code"
+    required_coverage: 0.80  # 80% minimum
+    focus: "new_lines_only"  # Only measure fix coverage
+
+docker_test_environment:
+  base_image: "blue-test-env:latest"
+  dockerfile: |
+    FROM python:3.11-slim
+    RUN apt-get update && apt-get install -y git curl
+    COPY requirements.txt .
+    RUN pip install -r requirements.txt
+    WORKDIR /workspace
+  
+  network: "isolated"
+  cleanup_policy: "always"
+  max_lifetime: 600  # 10 minutes
+
+verification_with_red:
+  enabled: true
+  method: "poc_rerun"
+  max_attempts: 3
+  success_criteria: "poc_must_fail"  # Exploit should be blocked
+```
 
 ---
 
@@ -479,6 +742,83 @@ async def create_vulnerability_report(vulns, metadata):
     return doc_id
 ```
 
+### Complete DOCUMENTATION Agent Configuration (UPDATED)
+
+```yaml
+# documentation_agent_config.yaml (COMPLETE)
+
+model:
+  name: "Phi-3.5-mini-instruct"
+  quantization: "Q6_K"
+  model_path: "/models/phi-3.5-mini-instruct-q6_k.gguf"
+  
+  generation_params:
+    temperature: 0.15  # Very consistent
+    max_tokens: 4000
+    top_p: 0.9
+    repeat_penalty: 1.05
+
+google_workspace:
+  authentication:
+    method: "service_account"  # NOT OAuth (for automation)
+    credentials_file: "/secrets/google-service-account.json"
+    scopes:
+      - "https://www.googleapis.com/auth/documents"
+      - "https://www.googleapis.com/auth/drive"
+      - "https://www.googleapis.com/auth/drive.file"
+    
+    token_refresh:
+      enabled: true
+      refresh_before_expiry: 300  # 5 minutes
+    
+    credential_rotation:
+      policy: "quarterly"
+      alert_before_expiry: 2592000  # 30 days
+  
+  mcp_config:
+    package: "langchain-google-community"
+    version: ">=0.1.0"
+    connection_pool_size: 5
+    retry_policy:
+      max_attempts: 3
+      backoff_multiplier: 2
+      timeout: 30
+  
+  rate_limits:
+    requests_per_minute: 60  # Google API limit
+    documents_per_day: 1000
+    updates_per_document_per_minute: 10  # Avoid conflicts
+  
+  document_updates:
+    strategy: "append_only"  # Never overwrite, always append
+    concurrency_control:
+      method: "optimistic_locking"
+      retry_on_conflict: true
+      max_retries: 5
+    
+    versioning:
+      enabled: true
+      create_revision: true
+      revision_comment: "Ouroboros auto-update"
+
+risk_score_calculation:
+  method: "weighted_cvss"
+  formula: |
+    risk_score = (
+      (critical_count * 10) +
+      (high_count * 7) +
+      (medium_count * 4) +
+      (low_count * 1)
+    ) / total_vulnerabilities * 10
+  
+  max_score: 100
+  thresholds:
+    critical: 80  # Red zone
+    high: 50
+    medium: 20
+    low: 0
+```
+
 ---
 
 ## GOVERNANCE AGENT SPECIFICATIONS
@@ -625,6 +965,118 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge).
 - **Output to**: PR Creation agent, AUDIT Agent
 - **Data stored in**: PostgreSQL, QLDB
 
+### Complete GOVERNANCE Agent Configuration (UPDATED)
+
+```yaml
+# governance_agent_config.yaml (COMPLETE)
+
+model:
+  name: "Phi-3.5-mini-instruct"
+  quantization: "Q6_K"
+  
+  generation_params:
+    temperature: 0.1  # Extremely deterministic
+    max_tokens: 1500
+    top_p: 0.95
+
+opa_integration:
+  engine: "opa"
+  version: "0.60.0"
+  endpoint: "http://opa-service:8181/v1/data"
+  
+  policy_loading:
+    method: "file_watch"
+    policy_dir: "/etc/opa/policies"
+    reload_on_change: true
+    hot_reload: true  # No restart needed
+  
+  policy_examples:
+    production_critical: |
+      package ouroboros.governance
+      
+      # Production + Critical = ESCALATE
+      decision := "escalate" {
+        input.environment == "production"
+        input.cvss >= 9.0
+      }
+    
+    dev_low_risk: |
+      package ouroboros.governance
+      
+      # Dev + Low CVSS = SUGGEST (but still needs PR review in V1)
+      decision := "suggest" {
+        input.environment == "dev"
+        input.cvss < 4.0
+      }
+
+risk_calculation:
+  formula: "cvss × env_multiplier × exploit_ease × data_sensitivity"
+  
+  cvss:
+    source: "RED agent output"
+    range: [0.0, 10.0]
+  
+  environment_multipliers:
+    dev: 1.0
+    staging: 2.0
+    production: 5.0
+  
+  exploit_ease:
+    method: "poc_success_rate"  # From RED agent
+    mapping:
+      "0.9-1.0": 1.0   # Very easy (PoC works 90%+ of time)
+      "0.7-0.9": 0.8   # Easy
+      "0.5-0.7": 0.6   # Medium
+      "0.3-0.5": 0.4   # Hard
+      "0.0-0.3": 0.2   # Very hard
+  
+  data_sensitivity_multipliers:
+    public: 1.0
+    internal: 1.5
+    confidential: 2.0
+    pii: 3.0
+    pci: 4.0
+
+approval_chain:
+  notification_method: "multi_channel"
+  
+  channels:
+    pagerduty:
+      api_key_env: "PAGERDUTY_API_KEY"
+      escalation_policy: "security-incidents"
+      urgency_mapping:
+        escalate: "high"
+        require: "low"
+    
+    slack:
+      webhook_url_env: "SLACK_WEBHOOK_URL"
+      channel: "#security-alerts"
+      mention_mapping:
+        on_call_engineer: "@oncall-security"
+        security_team: "@security-team"
+        ciso: "@ciso"
+    
+    email:
+      smtp_server: "smtp.company.com"
+      from: "ouroboros@company.com"
+      recipients:
+        on_call_engineer: "oncall-security@company.com"
+        security_team: "security-team@company.com"
+        ciso: "ciso@company.com"
+  
+  approval_sla:
+    auto_approve: 0  # Instant (V1: NOT USED)
+    suggest: 120  # 2 hours
+    require: 240  # 4 hours
+    escalate: 60  # 1 hour (urgent)
+
+autonomy_thresholds:
+  auto_approve: 20  # risk < 20 (V1: NOT USED, all need PR)
+  suggest: 50       # 20 ≤ risk < 50
+  require: 80       # 50 ≤ risk < 80
+  escalate: 100     # risk ≥ 80
+```
+
 ---
 
 ## AUDIT AGENT SPECIFICATIONS
@@ -719,6 +1171,130 @@ CRITICAL: Every field must be populated. No secrets in logs.
 - **Calls to**: immudb API, Phi-3.5 LLM
 - **Output to**: Compliance dashboard, auditor reports
 - **Data stored in**: immudb (append-only), PostgreSQL (read replicas)
+
+### Complete AUDIT Agent Configuration (UPDATED)
+
+```yaml
+# audit_agent_config.yaml (COMPLETE)
+
+model:
+  name: "Phi-3.5-mini-instruct"
+  quantization: "Q6_K"
+  
+  generation_params:
+    temperature: 0.05  # Fully deterministic
+    max_tokens: 1000
+    top_p: 0.99
+
+immudb_connection:
+  host: "immudb.ouroboros.svc"
+  port: 3322
+  database: "ouroboros_audit"
+  
+  authentication:
+    username_env: "IMMUDB_USERNAME"
+    password_env: "IMMUDB_PASSWORD"
+  
+  tls:
+    enabled: true
+    cert_file: "/certs/immudb-client.crt"
+    key_file: "/certs/immudb-client.key"
+    ca_file: "/certs/ca.crt"
+  
+  connection_pool:
+    max_connections: 10
+    idle_timeout: 300
+    max_retries: 3
+
+digital_signature:
+  algorithm: "HMAC-SHA256"
+  
+  key_management:
+    provider: "hashicorp_vault"
+    vault_addr: "https://vault.company.com"
+    key_path: "secret/data/ouroboros/hmac-key"
+    
+    rotation:
+      policy: "quarterly"
+      overlap_period: 604800  # 7 days (old + new keys valid)
+    
+    backup:
+      enabled: true
+      method: "shamir_secret_sharing"
+      threshold: 3
+      total_shares: 5
+  
+  merkle_tree:
+    algorithm: "SHA-256"
+    batch_size: 1000  # Entries per Merkle tree
+    root_storage: "immudb"
+
+compliance_mapping:
+  method: "static_table"  # NOT LLM-generated (too critical)
+  mapping_file: "/config/compliance_mappings.json"
+  
+  schema:
+    event_type: "red_discovery"
+    controls:
+      soc2:
+        - control_id: "CC6.1"
+          description: "Logical and Physical Access Controls"
+          evidence_type: "vulnerability_scan"
+        - control_id: "CC7.2"
+          description: "System Monitoring"
+          evidence_type: "automated_detection"
+      
+      iso27001:
+        - control_id: "A.12.2.1"
+          description: "Controls Against Malware"
+          evidence_type: "code_analysis"
+        - control_id: "A.14.2.1"
+          description: "Secure Development Policy"
+          evidence_type: "automated_remediation"
+      
+      gdpr:
+        - article: "Article 32"
+          clause: "1(a)"
+          description: "Pseudonymisation and encryption"
+          evidence_type: "security_testing"
+      
+      hipaa:
+        - section: "164.312(a)(2)(i)"
+          description: "Unique User Identification"
+          evidence_type: "authentication_testing"
+  
+  update_policy:
+    method: "version_controlled"
+    git_repo: "github.com/company/compliance-mappings"
+    auto_pull_interval: 3600  # Every hour
+
+event_schema:
+  required_fields:
+    - event_id
+    - timestamp
+    - event_type
+    - entity_id
+    - severity
+    - digital_signature
+    - merkle_hash
+  
+  optional_fields:
+    - user_id
+    - ip_address
+    - user_agent
+  
+  pii_fields_to_redact:  # CRITICAL: No PII in logs
+    - ssn
+    - credit_card
+    - email
+    - phone_number
+  
+  secret_fields_to_redact:  # CRITICAL: No secrets in logs
+    - api_key
+    - password
+    - token
+    - private_key
+```
 
 ---
 
