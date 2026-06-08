@@ -1,11 +1,14 @@
 """
 Ouroboros AI - Global Settings
-Loads configuration from environment variables
+Loads configuration from environment variables and AWS Secrets Manager
 """
 
 from pydantic_settings import BaseSettings
 from typing import Optional
 from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -104,6 +107,45 @@ class Settings(BaseSettings):
         env_file_encoding = "utf-8"
         case_sensitive = False
 
+    def load_secrets_from_aws(self):
+        """
+        Load secrets from AWS Secrets Manager (production).
+        Per 03_CRITICAL_DO_NOT_FILE: ZERO secrets in code.
+        
+        This method attempts to load secrets from AWS Secrets Manager.
+        Falls back to environment variables for local development.
+        """
+        if self.environment == "local_dev_no_aws":
+            # Skip AWS for local development without credentials
+            logger.info("Skipping AWS Secrets Manager (local dev mode)")
+            return
+
+        try:
+            import boto3
+            import json
+            
+            client = boto3.client("secretsmanager", region_name=self.aws_region)
+            secret_name = "ouroboros/app-secrets"
+            
+            response = client.get_secret_value(SecretId=secret_name)
+            
+            if "SecretString" in response:
+                secrets = json.loads(response["SecretString"])
+                
+                # Update settings with secrets
+                self.github_token = secrets.get("GITHUB_TOKEN", self.github_token)
+                self.github_webhook_secret = secrets.get("GITHUB_WEBHOOK_SECRET", self.github_webhook_secret)
+                self.immudb_password = secrets.get("IMMUDB_PASSWORD", self.immudb_password)
+                self.secret_key = secrets.get("SECRET_KEY", self.secret_key)
+                
+                logger.info("Successfully loaded secrets from AWS Secrets Manager")
+        except Exception as e:
+            logger.warning(f"Failed to load AWS secrets: {e}. Using environment variables.")
+
 
 # Global settings instance
 settings = Settings()
+
+# Attempt to load secrets on initialization (production)
+if settings.environment in ["production", "staging"]:
+    settings.load_secrets_from_aws()
