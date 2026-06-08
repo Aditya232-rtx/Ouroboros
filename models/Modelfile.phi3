@@ -1,0 +1,5 @@
+# Support Agents Modelfile - Phi-3 Mini
+FROM /Users/adityajadhav/ouroboros/Ouroboros/models/Phi-3-mini-4k-instruct-q4.gguf
+
+TEMPLATE """<|system|>
+{{ .System }}<|end|>

@@ -1,142 +1,86 @@
 """
-Parallel Model Loading Test with GPU Support
-Optimized for RTX 4090 (24GB VRAM)
+Test script for verifying model loading with temporary models.
+Tests all 3 temporary models to ensure they load correctly.
 """
+
+import logging
+import sys
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import time
-import threading
 
-print("=" * 60)
-print("Ouroboros AI - Parallel Model Loading Test (GPU)")
-print("=" * 60)
+# Add src to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-models_dir = Path("models")
-print(f"\nModels directory: {models_dir.absolute()}")
+from src.models import get_model
+from config.model_configs import MODEL_REGISTRY
 
-# Model configurations optimized for RTX 4090 24GB VRAM
-# Each model gets appropriate GPU layers for parallel loading
-MODEL_CONFIGS = [
-    {
-        "file": "WhiteRabbitNeo-7B-v1.5a-Q4_K_M.gguf",
-        "agent": "RED Agent",
-        "n_ctx": 4096,
-        "n_gpu_layers": 35,  # Full offload for 7B Q4
-    },
-    {
-        "file": "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf",
-        "agent": "BLUE Agent",
-        "n_ctx": 4096,
-        "n_gpu_layers": 35,  # Full offload for 7B Q4
-    },
-    {
-        "file": "Phi-3.5-mini-instruct-Q6_K.gguf",
-        "agent": "Support Agents",
-        "n_ctx": 2048,
-        "n_gpu_layers": 28,  # Full offload for 3.8B Q6
-    }
-]
-
-print("\nModel files:")
-all_found = True
-for config in MODEL_CONFIGS:
-    path = models_dir / config["file"]
-    if path.exists():
-        size_gb = path.stat().st_size / (1024**3)
-        print(f"  [OK] {config['agent']}: {config['file']} ({size_gb:.2f} GB)")
-    else:
-        print(f"  [XX] {config['agent']}: {config['file']} - NOT FOUND")
-        all_found = False
-
-if not all_found:
-    print("\n[ERROR] Some models missing!")
-    exit(1)
-
-# Parallel model loading
-print("\n" + "=" * 60)
-print("Loading ALL models in PARALLEL (GPU mode)...")
-print("RTX 4090 24GB VRAM - Optimized Configuration")
-print("=" * 60)
-
-loaded_models = {}
-load_lock = threading.Lock()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
-def load_model(config):
-    """Load a single model with GPU offloading."""
-    from llama_cpp import Llama
+def test_model_loading():
+    """Test loading all temporary models"""
     
-    model_path = str(models_dir / config["file"])
-    agent_name = config["agent"]
+    logger.info("="*60)
+    logger.info("Testing Temporary Model Loading")
+    logger.info("="*60)
     
-    start_time = time.time()
-    print(f"\n[LOADING] {agent_name}: {config['file']}")
+    results = {}
     
-    try:
-        llm = Llama(
-            model_path=model_path,
-            n_ctx=config["n_ctx"],
-            n_gpu_layers=config["n_gpu_layers"],
-            verbose=False,
-            n_threads=4,  # CPU threads for non-GPU ops
-        )
+    for agent_name, config in MODEL_REGISTRY.items():
+        logger.info(f"\n🔄 Testing {agent_name.upper()} Agent Model...")
+        logger.info(f"   Model: {config.name}")
+        logger.info(f"   Path: {config.model_path}")
+        logger.info(f"   VRAM: ~{config.n_gpu_layers * 0.1:.1f} GB (approx)")
         
-        load_time = time.time() - start_time
-        print(f"[OK] {agent_name} loaded in {load_time:.2f}s")
-        
-        return agent_name, llm, load_time
-        
-    except Exception as e:
-        print(f"[ERROR] {agent_name}: {type(e).__name__}: {e}")
-        return agent_name, None, 0
-
-
-try:
-    total_start = time.time()
-    
-    # Use ThreadPoolExecutor for parallel loading
-    # max_workers=3 to load all models simultaneously
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {executor.submit(load_model, config): config for config in MODEL_CONFIGS}
-        
-        for future in as_completed(futures):
-            agent_name, llm, load_time = future.result()
-            if llm:
-                with load_lock:
-                    loaded_models[agent_name] = llm
-    
-    total_time = time.time() - total_start
-    
-    print("\n" + "-" * 60)
-    print(f"Parallel Loading Complete: {len(loaded_models)}/{len(MODEL_CONFIGS)} models")
-    print(f"Total Time: {total_time:.2f}s (parallel speedup)")
-    print("-" * 60)
-    
-    # Test inference on each loaded model
-    print("\nTesting inference on all loaded models...")
-    
-    for agent_name, llm in loaded_models.items():
-        print(f"\n[TEST] {agent_name}:")
         try:
-            output = llm("Say hello:", max_tokens=20)
-            response = output['choices'][0]['text'].strip()[:50]
-            print(f"  Response: {response}...")
-            print(f"  [OK] Inference works!")
+            model = get_model(agent_name)
+            
+            if model:
+                logger.info(f"   ✅ {agent_name.upper()} model loaded successfully!")
+                
+                # Test simple inference
+                test_prompt = "Hello, test"
+                response = model.create_completion(
+                    prompt=test_prompt,
+                    max_tokens=10,
+                    temperature=0.1
+                )
+                
+                logger.info(f"   ✅ Inference test passed")
+                results[agent_name] = "SUCCESS"
+            else:
+                logger.error(f"   ❌ {agent_name.upper()} model returned None")
+                results[agent_name] = "FAILED - returned None"
+                
         except Exception as e:
-            print(f"  [ERROR] Inference failed: {e}")
+            logger.error(f"   ❌ {agent_name.upper()} failed: {e}")
+            results[agent_name] = f"FAILED - {str(e)}"
     
-    # Cleanup all models
-    print("\nCleaning up models from VRAM...")
-    for agent_name in list(loaded_models.keys()):
-        del loaded_models[agent_name]
-    loaded_models.clear()
-    print("[OK] VRAM released")
+    # Summary
+    logger.info("\n" + "="*60)
+    logger.info("Test Summary")
+    logger.info("="*60)
     
-except Exception as e:
-    print(f"\n[ERROR] {type(e).__name__}: {e}")
-    import traceback
-    traceback.print_exc()
+    for agent, result in results.items():
+        status = "✅" if result == "SUCCESS" else "❌"
+        logger.info(f"{status} {agent.upper()}: {result}")
+    
+    success_count = sum(1 for r in results.values() if r == "SUCCESS")
+    total_count = len(results)
+    
+    logger.info(f"\nTotal: {success_count}/{total_count} models loaded successfully")
+    
+    if success_count == total_count:
+        logger.info("\n🎉 All models loaded successfully!")
+        return 0
+    else:
+        logger.error("\n⚠️ Some models failed to load")
+        return 1
 
-print("\n" + "=" * 60)
-print("Phase 1 Validation: COMPLETE")
-print("=" * 60)
+
+if __name__ == "__main__":
+    exit_code = test_model_loading()
+    sys.exit(exit_code)

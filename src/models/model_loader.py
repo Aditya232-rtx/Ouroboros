@@ -1,12 +1,11 @@
 """
-Ouroboros AI - Model Loader
-Loads and manages GGUF models using llama-cpp-python
+Ouroboros AI - Model Loader (Ollama)
+Loads and manages models using Ollama API
 """
 
 import logging
-from pathlib import Path
-from typing import Optional, Dict
-from langchain_community.llms import LlamaCpp
+from typing import Optional, Dict, Any
+from langchain_community.llms import Ollama
 from config.model_configs import ModelConfig, MODEL_REGISTRY
 from config.settings import settings
 
@@ -14,21 +13,31 @@ logger = logging.getLogger(__name__)
 
 
 class ModelLoader:
-    """Loads and caches GGUF models"""
+    """Loads and caches models via Ollama"""
     
-    def __init__(self):
-        self.loaded_models: Dict[str, LlamaCpp] = {}
-        self.models_dir = settings.models_dir
+    def __init__(self, ollama_base_url: str = "http://localhost:11434"):
+        self.loaded_models: Dict[str, Ollama] = {}
+        self.ollama_base_url = ollama_base_url
+        self.model_name_mapping = {
+            # Map our config model names to Ollama model names
+            "Qwen2.5-Coder-3B": "ouroboros-red",
+            "DeepSeek-Coder-1.3B": "ouroboros-blue",
+            "Phi-3-mini-4k": "ouroboros-support"
+        }
         
-    def load_model(self, agent_type: str) -> LlamaCpp:
+    def _get_ollama_model_name(self, config_name: str) -> str:
+        """Convert config model name to Ollama model name"""
+        return self.model_name_mapping.get(config_name, config_name.lower())
+    
+    def load_model(self, agent_type: str) -> Ollama:
         """
-        Load a model for a specific agent type
+        Load a model for a specific agent type using Ollama
         
         Args:
             agent_type: One of 'red', 'blue', 'governance', 'documentation', 'audit'
             
         Returns:
-            Loaded LlamaCpp model instance
+            Loaded Ollama model instance
         """
         # Return cached model if already loaded
         if agent_type in self.loaded_models:
@@ -40,39 +49,28 @@ class ModelLoader:
             raise ValueError(f"Unknown agent type: {agent_type}")
         
         config = MODEL_REGISTRY[agent_type]
-        model_path = self.models_dir / config.model_path
+        ollama_model_name = self._get_ollama_model_name(config.name)
         
-        # Verify model file exists
-        if not model_path.exists():
-            raise FileNotFoundError(
-                f"Model file not found: {model_path}\n"
-                f"Expected location: {model_path.absolute()}"
-            )
-        
-        logger.info(f"Loading {config.name} model from {model_path}")
+        logger.info(f"Loading {config.name} via Ollama (model: {ollama_model_name})")
         logger.info(f"Temperature: {config.temperature}, Max tokens: {config.max_tokens}")
         
         try:
-            # Load model with llama-cpp-python
-            model = LlamaCpp(
-                model_path=str(model_path),
+            # Create Ollama model instance
+            model = Ollama(
+                base_url=self.ollama_base_url,
+                model=ollama_model_name,
                 temperature=config.temperature,
-                max_tokens=config.max_tokens,
-                n_ctx=config.n_ctx,
+                num_predict=config.max_tokens,
                 top_p=config.top_p,
-                n_gpu_layers=config.n_gpu_layers,
                 repeat_penalty=config.repeat_penalty,
                 stop=config.stop_sequences,
+                # Ollama-specific parameters
+                num_ctx=config.n_ctx,
+                num_gpu=1,  # Use GPU if available
                 verbose=settings.debug,
-                n_threads=settings.n_threads,
-                # Performance optimizations
-                use_mmap=True,  # Memory-map model file
-                use_mlock=True,  # Lock model in RAM
-                # Batch size for prompt processing
-                n_batch=512,
             )
             
-            logger.info(f"Successfully loaded {config.name}")
+            logger.info(f"Successfully loaded {config.name} via Ollama")
             
             # Cache the model
             self.loaded_models[agent_type] = model
@@ -81,16 +79,17 @@ class ModelLoader:
             
         except Exception as e:
             logger.error(f"Failed to load model for {agent_type}: {e}")
+            logger.error(f"Make sure Ollama is running and model '{ollama_model_name}' is pulled")
             raise
     
-    def load_all_models(self) -> Dict[str, LlamaCpp]:
+    def load_all_models(self) -> Dict[str, Ollama]:
         """
         Load all models for all agents
         
         Returns:
             Dictionary mapping agent types to loaded models
         """
-        logger.info("Loading all models...")
+        logger.info("Loading all models via Ollama...")
         
         for agent_type in MODEL_REGISTRY.keys():
             try:
@@ -109,7 +108,7 @@ class ModelLoader:
             logger.info(f"Unloaded {agent_type} model")
     
     def unload_all_models(self):
-        """Unload all models to free memory"""
+        """Unload all models"""
         self.loaded_models.clear()
         logger.info("Unloaded all models")
 
@@ -118,7 +117,7 @@ class ModelLoader:
 model_loader = ModelLoader()
 
 
-def get_model(agent_type: str) -> LlamaCpp:
+def get_model(agent_type: str) -> Ollama:
     """
     Convenience function to get a loaded model
     
@@ -126,6 +125,6 @@ def get_model(agent_type: str) -> LlamaCpp:
         agent_type: One of 'red', 'blue', 'governance', 'documentation', 'audit'
         
     Returns:
-        Loaded LlamaCpp model instance
+        Loaded Ollama model instance
     """
     return model_loader.load_model(agent_type)

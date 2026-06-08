@@ -5,7 +5,8 @@
 # =====================================================
 langchain>=0.1.0
 langgraph>=0.1.0
-llama-cpp-python>=0.2.0  # For GGUF model loading
+ollama>=0.1.0  # Ollama Python client for model inference
+# llama-cpp-python>=0.2.0  # DEPRECATED: Switched to Ollama
 
 # =====================================================
 # AGENT TOOLS

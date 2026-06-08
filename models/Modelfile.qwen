@@ -1,0 +1,17 @@
+# RED Agent Modelfile - Qwen2.5-Coder 3B
+FROM /Users/adityajadhav/ouroboros/Ouroboros/models/Qwen2.5-Coder-3B-Instruct-abliterated-Q4_K_M.gguf
+
+TEMPLATE """{{ if .System }}<|im_start|>system
+{{ .System }}<|im_end|>
+{{ end }}{{ if .Prompt }}<|im_start|>user
+{{ .Prompt }}<|im_end|>
+<|im_start|>assistant
+{{ end }}"""
+
+PARAMETER temperature 0.7
+PARAMETER num_ctx 4096
+PARAMETER top_p 0.9
+PARAMETER repeat_penalty 1.1
+PARAMETER num_gpu 1
+
+SYSTEM """You are a security-focused code analysis AI specializing in vulnerability discovery."""

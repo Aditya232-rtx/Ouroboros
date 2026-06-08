@@ -27,12 +27,19 @@ class Settings(BaseSettings):
     
     # Models
     models_dir: Path = Path("./models")
-    red_agent_model: str = "WhiteRabbitNeo-7B-v1.5a-Q4_K_M.gguf"
-    blue_agent_model: str = "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"
-    support_agent_model: str = "Phi-3.5-mini-instruct-Q6_K.gguf"
+    
+    # TEMPORARY: Smaller models for testing (total ~7.2 GB)
+    red_agent_model: str = "Qwen2.5-Coder-3B-Instruct-abliterated-Q4_K_M.gguf"  # ~2.4 GB
+    blue_agent_model: str = "deepseek-coder-1.3b-instruct.Q6_K.gguf"  # ~2.2 GB
+    support_agent_model: str = "Phi-3-mini-4k-instruct-q4.gguf"  # ~2.6 GB
+    
+    # PRODUCTION: Full models (commented out for GPU constraints)
+    # red_agent_model: str = "WhiteRabbitNeo-7B-v1.5a-Q4_K_M.gguf"  # ~4.5 GB
+    # blue_agent_model: str = "DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf"  # ~4.8 GB
+    # support_agent_model: str = "Phi-3.5-mini-instruct-Q6_K.gguf"  # ~3.2 GB
     
     # Model Configuration
-    gpu_layers: int = 35
+    gpu_layers: int = 25  # Reduced for smaller models
     n_ctx: int = 4096
     n_threads: int = 8
     

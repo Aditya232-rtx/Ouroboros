@@ -1,0 +1,4 @@
+FROM /Users/adityajadhav/ouroboros/Ouroboros/models/Phi-3-mini-4k-instruct-q4.gguf
+PARAMETER temperature 0.1
+PARAMETER num_ctx 4096
+PARAMETER num_gpu 1
