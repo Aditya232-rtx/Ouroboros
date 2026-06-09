@@ -46,7 +46,11 @@ credentials.json
 # Models - Large GGUF files (models/ directory, NOT src/models/)
 models/*.gguf
 models/*.bin
+models/Modelfile.*
 # Note: These are large model files that should not be committed
+
+# Local backup directory (created during merge)
+.backup_local_work/
 
 # Data & Logs
 logs/
