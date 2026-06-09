@@ -171,44 +171,122 @@ class SafetyGates:
         - Compare results
         - Fail if new vulnerabilities introduced
         """
-        # TODO: Implement actual Semgrep differential scanning
-        # For now, use simplified check
+        import tempfile
+        import os
+        import json
         
         self.logger.info("Running Semgrep differential scan...")
         
-        # Simplified validation: check for common vulnerability patterns
-        vuln_patterns = {
-            "sql_injection": ["+ user_id", "+ username", "+ password"],
-            "command_injection": ["subprocess.call(", "os.system("],
-            "xss": ["innerHTML =", "document.write("],
-        }
-        
-        new_vulns = []
-        for vuln_type, patterns in vuln_patterns.items():
-            for pattern in patterns:
-                if pattern in fixed_code and pattern not in original_code:
-                    new_vulns.append(f"{vuln_type}: {pattern}")
+        # Write code to temp files for Semgrep scanning
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original_file = os.path.join(tmpdir, "original.py")
+            fixed_file = os.path.join(tmpdir, "fixed.py")
+            
+            with open(original_file, "w") as f:
+                f.write(original_code)
+            with open(fixed_file, "w") as f:
+                f.write(fixed_code)
+            
+            def run_semgrep(filepath: str) -> list:
+                """Run Semgrep on a file and return findings."""
+                try:
+                    result = subprocess.run(
+                        [
+                            "semgrep",
+                            "--config", "p/security-audit",
+                            "--config", "p/owasp-top-10",
+                            "--json",
+                            filepath
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=120
+                    )
+                    if result.stdout:
+                        output = json.loads(result.stdout)
+                        return output.get("results", [])
+                except FileNotFoundError:
+                    self.logger.warning("Semgrep not installed, falling back to pattern matching")
+                    return None
+                except subprocess.TimeoutExpired:
+                    self.logger.error("Semgrep scan timed out")
+                    return None
+                except json.JSONDecodeError:
+                    self.logger.error("Failed to parse Semgrep output")
+                    return None
+                return []
+            
+            # Run Semgrep on both versions
+            original_findings = run_semgrep(original_file)
+            fixed_findings = run_semgrep(fixed_file)
+            
+            # If Semgrep is not available, fall back to pattern matching
+            if original_findings is None or fixed_findings is None:
+                vuln_patterns = {
+                    "sql_injection": ["+ user_id", "+ username", "% user"],
+                    "command_injection": ["subprocess.call(", "os.system(", "shell=True"],
+                    "xss": ["innerHTML =", "document.write("],
+                }
+                
+                new_vulns = []
+                for vuln_type, patterns in vuln_patterns.items():
+                    for pattern in patterns:
+                        if pattern in fixed_code and pattern not in original_code:
+                            new_vulns.append(f"{vuln_type}: {pattern}")
+                
+                if new_vulns:
+                    return GateResult(
+                        gate_name="No New Vulnerabilities",
+                        status=GateStatus.FAILED,
+                        reason=f"New vulnerabilities introduced: {', '.join(new_vulns)}",
+                        details={"new_vulnerabilities": new_vulns, "method": "pattern_matching"}
+                    )
+                
+                return GateResult(
+                    gate_name="No New Vulnerabilities",
+                    status=GateStatus.PASSED,
+                    reason="No new vulnerabilities detected (pattern matching fallback)",
+                    details={"method": "pattern_matching"}
+                )
+            
+            # Compare findings - find NEW vulnerabilities in fixed code
+            original_rules = {(f["check_id"], f.get("start", {}).get("line", 0)) for f in original_findings}
+            new_vulns = []
+            
+            for finding in fixed_findings:
+                key = (finding["check_id"], finding.get("start", {}).get("line", 0))
+                if key not in original_rules:
+                    new_vulns.append({
+                        "rule": finding["check_id"],
+                        "message": finding.get("extra", {}).get("message", ""),
+                        "line": finding.get("start", {}).get("line", 0)
+                    })
         
         if new_vulns:
             return GateResult(
                 gate_name="No New Vulnerabilities",
                 status=GateStatus.FAILED,
-                reason=f"New vulnerabilities introduced: {', '.join(new_vulns)}",
-                details={"new_vulnerabilities": new_vulns}
+                reason=f"Semgrep found {len(new_vulns)} new vulnerabilities",
+                details={"new_vulnerabilities": new_vulns, "method": "semgrep"}
             )
         
         return GateResult(
             gate_name="No New Vulnerabilities",
             status=GateStatus.PASSED,
-            reason="No new vulnerabilities detected in differential scan"
+            reason=f"Semgrep scan passed - no new vulnerabilities (original: {len(original_findings)}, fixed: {len(fixed_findings)})",
+            details={"original_count": len(original_findings), "fixed_count": len(fixed_findings), "method": "semgrep"}
         )
     
-    async def gate_3_backward_compatibility(self, test_code: str = None) -> GateResult:
+    async def gate_3_backward_compatibility(self, test_code: str = None, fixed_code: str = None) -> GateResult:
         """
         Gate 3: Ensure existing tests pass 100%
         
         Runs existing test suite to verify fix doesn't break functionality
         """
+        import tempfile
+        import os
+        import json
+        
         if not test_code:
             return GateResult(
                 gate_name="Backward Compatibility",
@@ -216,26 +294,106 @@ class SafetyGates:
                 reason="No test code provided"
             )
         
-        # TODO: Implement actual test execution in Docker
-        # For now, assume tests pass if test code is provided
+        self.logger.info("Running tests with pytest...")
         
-        self.logger.info("Checking test code validity...")
-        
-        # Basic check: test code should contain assertions
-        if "assert" not in test_code and "self.assert" not in test_code:
-            return GateResult(
-                gate_name="Backward Compatibility",
-                status=GateStatus.FAILED,
-                reason="Test code does not contain assertions",
-                details={"test_code_length": len(test_code)}
-            )
-        
-        return GateResult(
-            gate_name="Backward Compatibility",
-            status=GateStatus.PASSED,
-            reason="Test code structure validated (actual execution pending Docker integration)",
-            details={"test_code_provided": True}
-        )
+        # Write code and tests to temp directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write the fixed code
+            code_file = os.path.join(tmpdir, "module_under_test.py")
+            if fixed_code:
+                with open(code_file, "w") as f:
+                    f.write(fixed_code)
+            
+            # Write test code
+            test_file = os.path.join(tmpdir, "test_module.py")
+            with open(test_file, "w") as f:
+                # Add import for the module if fixed_code was provided
+                if fixed_code:
+                    f.write("import sys\nimport os\nsys.path.insert(0, os.path.dirname(__file__))\n")
+                f.write(test_code)
+            
+            # Run pytest
+            try:
+                result = subprocess.run(
+                    [
+                        "python", "-m", "pytest",
+                        test_file,
+                        "--tb=short",
+                        "-v",
+                        "--json-report",
+                        f"--json-report-file={os.path.join(tmpdir, 'report.json')}"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=tmpdir
+                )
+                
+                # Try to read JSON report
+                report_file = os.path.join(tmpdir, "report.json")
+                if os.path.exists(report_file):
+                    with open(report_file) as f:
+                        report = json.load(f)
+                    passed = report.get("summary", {}).get("passed", 0)
+                    failed = report.get("summary", {}).get("failed", 0)
+                    total = passed + failed
+                else:
+                    # Fallback: parse return code
+                    passed = 1 if result.returncode == 0 else 0
+                    failed = 0 if result.returncode == 0 else 1
+                    total = 1
+                
+                if result.returncode != 0:
+                    return GateResult(
+                        gate_name="Backward Compatibility",
+                        status=GateStatus.FAILED,
+                        reason=f"Tests failed: {failed}/{total} tests failed",
+                        details={
+                            "passed": passed,
+                            "failed": failed,
+                            "output": result.stdout[-1000:] if result.stdout else result.stderr[-1000:]
+                        }
+                    )
+                
+                return GateResult(
+                    gate_name="Backward Compatibility",
+                    status=GateStatus.PASSED,
+                    reason=f"All tests passed: {passed}/{total}",
+                    details={"passed": passed, "total": total, "method": "pytest"}
+                )
+                
+            except FileNotFoundError:
+                self.logger.warning("pytest not installed, using syntax validation fallback")
+                # Fallback: validate test code syntax
+                try:
+                    ast.parse(test_code)
+                    if "assert" not in test_code and "self.assert" not in test_code:
+                        return GateResult(
+                            gate_name="Backward Compatibility",
+                            status=GateStatus.FAILED,
+                            reason="Test code does not contain assertions",
+                            details={"method": "syntax_check"}
+                        )
+                    return GateResult(
+                        gate_name="Backward Compatibility",
+                        status=GateStatus.PASSED,
+                        reason="Test code syntax validated (pytest not available)",
+                        details={"method": "syntax_check"}
+                    )
+                except SyntaxError as e:
+                    return GateResult(
+                        gate_name="Backward Compatibility",
+                        status=GateStatus.FAILED,
+                        reason=f"Test code has syntax error: {e}",
+                        details={"method": "syntax_check", "error": str(e)}
+                    )
+            except subprocess.TimeoutExpired:
+                return GateResult(
+                    gate_name="Backward Compatibility",
+                    status=GateStatus.FAILED,
+                    reason="Test execution timed out (>60s)",
+                    details={"method": "pytest", "timeout": True}
+                )
     
     async def gate_4_performance(
         self, 
@@ -291,8 +449,12 @@ class SafetyGates:
         """
         Gate 5: Ensure test coverage >80%
         
-        Measures code coverage of the fix
+        Measures code coverage of the fix using coverage.py
         """
+        import tempfile
+        import os
+        import json
+        
         if not test_code:
             return GateResult(
                 gate_name="Test Coverage",
@@ -301,27 +463,114 @@ class SafetyGates:
                 details={"coverage": 0.0}
             )
         
-        # TODO: Implement actual coverage measurement
-        # For now, estimate based on test code size
+        self.logger.info("Measuring test coverage with coverage.py...")
         
-        # Heuristic: if test code is at least 50% of fix code, assume good coverage
-        test_ratio = len(test_code) / max(len(fixed_code), 1)
-        estimated_coverage = min(test_ratio * 1.5, 0.95)  # Cap at 95%
-        
-        if estimated_coverage < 0.8:
-            return GateResult(
-                gate_name="Test Coverage",
-                status=GateStatus.FAILED,
-                reason=f"Estimated coverage {estimated_coverage:.1%} < 80%",
-                details={"estimated_coverage": estimated_coverage}
-            )
-        
-        return GateResult(
-            gate_name="Test Coverage",
-            status=GateStatus.PASSED,
-            reason=f"Estimated coverage {estimated_coverage:.1%} >= 80%",
-            details={"estimated_coverage": estimated_coverage}
-        )
+        # Write code and tests to temp directory
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write the fixed code as a module
+            code_file = os.path.join(tmpdir, "module_under_test.py")
+            with open(code_file, "w") as f:
+                f.write(fixed_code)
+            
+            # Write test code
+            test_file = os.path.join(tmpdir, "test_module.py")
+            with open(test_file, "w") as f:
+                f.write("import sys\nimport os\nsys.path.insert(0, os.path.dirname(__file__))\n")
+                f.write("from module_under_test import *\n")
+                f.write(test_code)
+            
+            # Run coverage
+            try:
+                # Run tests with coverage
+                result = subprocess.run(
+                    [
+                        "python", "-m", "coverage", "run",
+                        "--source", tmpdir,
+                        "-m", "pytest", test_file, "-v"
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                    cwd=tmpdir
+                )
+                
+                # Generate JSON report
+                json_result = subprocess.run(
+                    ["python", "-m", "coverage", "json", "-o", os.path.join(tmpdir, "coverage.json")],
+                    capture_output=True,
+                    text=True,
+                    cwd=tmpdir
+                )
+                
+                # Read coverage report
+                coverage_file = os.path.join(tmpdir, "coverage.json")
+                if os.path.exists(coverage_file):
+                    with open(coverage_file) as f:
+                        cov_data = json.load(f)
+                    coverage_percent = cov_data.get("totals", {}).get("percent_covered", 0) / 100.0
+                else:
+                    # Fallback to parsing text output
+                    text_result = subprocess.run(
+                        ["python", "-m", "coverage", "report"],
+                        capture_output=True,
+                        text=True,
+                        cwd=tmpdir
+                    )
+                    # Parse TOTAL line
+                    for line in text_result.stdout.split("\n"):
+                        if "TOTAL" in line:
+                            parts = line.split()
+                            if parts:
+                                try:
+                                    coverage_percent = float(parts[-1].rstrip("%")) / 100.0
+                                except ValueError:
+                                    coverage_percent = 0.0
+                            break
+                    else:
+                        coverage_percent = 0.0
+                
+                if coverage_percent < 0.8:
+                    return GateResult(
+                        gate_name="Test Coverage",
+                        status=GateStatus.FAILED,
+                        reason=f"Coverage {coverage_percent:.1%} < 80% required",
+                        details={"coverage": coverage_percent, "method": "coverage.py"}
+                    )
+                
+                return GateResult(
+                    gate_name="Test Coverage",
+                    status=GateStatus.PASSED,
+                    reason=f"Coverage {coverage_percent:.1%} >= 80%",
+                    details={"coverage": coverage_percent, "method": "coverage.py"}
+                )
+                
+            except FileNotFoundError:
+                self.logger.warning("coverage.py not installed, using heuristic estimation")
+                # Fallback: heuristic estimation
+                test_ratio = len(test_code) / max(len(fixed_code), 1)
+                estimated_coverage = min(test_ratio * 1.5, 0.95)
+                
+                if estimated_coverage < 0.8:
+                    return GateResult(
+                        gate_name="Test Coverage",
+                        status=GateStatus.FAILED,
+                        reason=f"Estimated coverage {estimated_coverage:.1%} < 80%",
+                        details={"estimated_coverage": estimated_coverage, "method": "heuristic"}
+                    )
+                
+                return GateResult(
+                    gate_name="Test Coverage",
+                    status=GateStatus.PASSED,
+                    reason=f"Estimated coverage {estimated_coverage:.1%} >= 80% (coverage.py not available)",
+                    details={"estimated_coverage": estimated_coverage, "method": "heuristic"}
+                )
+            except subprocess.TimeoutExpired:
+                return GateResult(
+                    gate_name="Test Coverage",
+                    status=GateStatus.FAILED,
+                    reason="Coverage measurement timed out (>60s)",
+                    details={"method": "coverage.py", "timeout": True}
+                )
 
 
 # Global safety gates instance

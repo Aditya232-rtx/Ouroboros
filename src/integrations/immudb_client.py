@@ -44,21 +44,33 @@ class ImmudbClient:
     
     def connect(self):
         """
-        Connect to immudb server.
+        Connect to immudb server using the official immudb-py client.
         
-        In production, use:
-        from immudb import ImmudbClient as RealImmudbClient
-        self.client = RealImmudbClient()
-        self.client.login(username, password)
+        Falls back to in-memory storage if immudb is not available.
         """
         try:
-            # TODO: Implement actual immudb connection
-            # For now, using in-memory fallback
-            logger.warning("Using in-memory audit log (immudb not connected)")
+            from immudb import ImmudbClient as RealImmudbClient
+            from immudb.rootService import RootService
+            
+            self.client = RealImmudbClient(
+                immudUrl=f"{self.host}:{self.port}"
+            )
+            self.client.login(self.username, self.password, self.database)
+            
             self.connected = True
+            logger.info(f"Connected to immudb at {self.host}:{self.port}")
+            
+        except ImportError:
+            logger.warning("immudb-py not installed. Run: pip install immudb-py")
+            logger.warning("Using in-memory audit log fallback")
+            self.connected = False
+            self.client = None
+            
         except Exception as e:
             logger.error(f"Failed to connect to immudb: {e}")
+            logger.warning("Using in-memory audit log fallback")
             self.connected = False
+            self.client = None
     
     def log_event(
         self,
@@ -134,16 +146,26 @@ class ImmudbClient:
     
     def _store_event(self, event: Dict[str, Any]) -> str:
         """
-        Store event in immudb.
+        Store event in immudb using the official client.
         
-        In production:
+        Falls back to in-memory storage if immudb is not connected.
+        """
         key = event["event_id"]
         value = json.dumps(event)
-        self.client.set(key, value)
-        """
-        # Fallback: in-memory
+        
+        if self.client is not None:
+            try:
+                # Use immudb verified set for tamper-proof storage
+                self.client.verifiedSet(key.encode(), value.encode())
+                logger.debug(f"Stored event {key[:12]}... in immudb")
+                return key
+            except Exception as e:
+                logger.error(f"Failed to store event in immudb: {e}")
+                # Fall through to in-memory fallback
+        
+        # In-memory fallback
         self.events.append(event)
-        return event["event_id"]
+        return key
     
     def get_audit_trail(
         self,

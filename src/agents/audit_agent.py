@@ -145,7 +145,7 @@ CRITICAL: Every field must be populated. No secrets in logs."""
             # Get compliance mappings
             mappings = self._get_compliance_mappings(input_data["event_type"])
             
-            # Log to immudb (simulated)
+            # Log to immudb via integrated client
             ledger_entry = await self._log_to_immudb(event)
             
             return {
@@ -186,13 +186,21 @@ CRITICAL: Every field must be populated. No secrets in logs."""
         }
     
     def _create_signature(self, data: Dict[str, Any]) -> str:
-        """Create HMAC-SHA256 signature"""
-        # In production, use proper key from Vault
-        secret_key = "ouroboros-hmac-key"  # TODO: Load from secrets
+        """Create HMAC-SHA256 signature using secret from settings."""
+        import hmac
+        
+        # Load secret key from settings
+        try:
+            from config.settings import settings
+            secret_key = settings.secret_key
+        except Exception:
+            secret_key = "ouroboros-hmac-key-default"
         
         data_str = json.dumps(data, sort_keys=True)
-        signature = hashlib.sha256(
-            (data_str + secret_key).encode()
+        signature = hmac.new(
+            secret_key.encode(),
+            data_str.encode(),
+            hashlib.sha256
         ).hexdigest()
         
         return signature
@@ -240,18 +248,38 @@ CRITICAL: Every field must be populated. No secrets in logs."""
         })
     
     async def _log_to_immudb(self, event: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Log event to immudb
-        
-        TODO: Implement actual immudb connection
-        """
-        self.logger.info("Logging to immudb (simulated)...")
-        
-        return {
-            "ledger_id": f"immudb-{datetime.now().strftime('%Y%m%d%H%M%S')}",
-            "hash_chain": event["merkle_hash"],
-            "tamper_proof": True
-        }
+        """Log event to immudb using the real immudb client."""
+        try:
+            from src.integrations.immudb_client import immudb_client
+            
+            # Connect if not connected
+            if not immudb_client.connected:
+                immudb_client.connect()
+            
+            # Log the event
+            event_hash = immudb_client.log_event(
+                event_type=event["event_type"],
+                entity_id=event["entity_id"],
+                details=event["details"],
+                compliance_mappings=None
+            )
+            
+            self.logger.info(f"Logged to immudb: {event_hash[:12]}...")
+            
+            return {
+                "ledger_id": event_hash,
+                "hash_chain": event["merkle_hash"],
+                "tamper_proof": True
+            }
+            
+        except Exception as e:
+            self.logger.error(f"immudb logging failed: {e}")
+            # Fallback response
+            return {
+                "ledger_id": f"local-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "hash_chain": event["merkle_hash"],
+                "tamper_proof": False
+            }
     
     def format_output(self, result: Dict[str, Any]) -> AuditAgentOutput:
         """Format AUDIT Agent output"""
