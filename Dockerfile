@@ -8,14 +8,32 @@ ENV PYTHONPATH=/app
 
 WORKDIR /app
 
-# Install system dependencies
-# Including tools needed for scanning (git, curl)
+# Install system dependencies including security tools
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     curl \
     build-essential \
     libpq-dev \
+    nmap \
+    wget \
+    gnupg \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Docker CLI (for Docker-in-Docker control)
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh
+
+# Install Node.js (for MCP Servers)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y nodejs
+
+# Install Trivy
+RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+
+# Install Gitleaks
+RUN curl -sS https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz | tar -xz -C /usr/local/bin gitleaks
+
+# Install Nuclei
+RUN curl -sS https://github.com/projectdiscovery/nuclei/releases/download/v3.2.0/nuclei_3.2.0_linux_amd64.tar.gz | tar -xz -C /usr/local/bin nuclei
 
 # Copy requirements
 COPY requirements.txt .
