@@ -12,14 +12,61 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 
+class RawOllamaClient:
+    """Robust, dependency-free Ollama client"""
+    def __init__(self, base_url: str, model: str, **kwargs):
+        self.base_url = base_url.rstrip('/')
+        self.model = model
+        self.kwargs = kwargs
+        import requests
+        self.session = requests.Session()
+
+    def invoke(self, prompt: str, **kwargs) -> str:
+        """Invoke model with prompt"""
+        import requests
+        import json
+        
+        url = f"{self.base_url}/api/generate"
+        
+        # Merge defaults with run-time kwargs
+        params = {**self.kwargs, **kwargs}
+        
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {
+                "temperature": params.get("temperature", 0.7),
+                "num_predict": params.get("num_predict", 2048),
+                "top_p": params.get("top_p", 0.9),
+                "repeat_penalty": params.get("repeat_penalty", 1.1),
+                "num_ctx": params.get("num_ctx", 4096),
+                "stop": params.get("stop", [])
+            }
+        }
+        
+        try:
+            response = self.session.post(url, json=payload, timeout=300)
+            response.raise_for_status()
+            data = response.json()
+            return data.get("response", "")
+        except Exception as e:
+            logger.error(f"Ollama raw request failed: {e}")
+            raise RuntimeError(f"Ollama failed: {e}")
+
+    def __call__(self, prompt: str, **kwargs) -> str:
+        return self.invoke(prompt, **kwargs)
+
+
 class ModelLoader:
     """Loads and caches models via Ollama"""
     
     def __init__(self, ollama_base_url: str = "http://localhost:11434"):
-        self.loaded_models: Dict[str, Ollama] = {}
+        self.loaded_models: Dict[str, RawOllamaClient] = {}
         self.ollama_base_url = ollama_base_url
         self.model_name_mapping = {
             # Map our config model names to Ollama model names
+            "WhiteRabbitNeo-7B": "whiterabbitneo",
             "Qwen2.5-Coder-3B": "ouroboros-red",
             "DeepSeek-Coder-1.3B": "ouroboros-blue",
             "Phi-3-mini-4k": "ouroboros-support"
@@ -29,7 +76,7 @@ class ModelLoader:
         """Convert config model name to Ollama model name"""
         return self.model_name_mapping.get(config_name, config_name.lower())
     
-    def load_model(self, agent_type: str) -> Ollama:
+    def load_model(self, agent_type: str) -> RawOllamaClient:
         """
         Load a model for a specific agent type using Ollama
         
@@ -55,19 +102,16 @@ class ModelLoader:
         logger.info(f"Temperature: {config.temperature}, Max tokens: {config.max_tokens}")
         
         try:
-            # Create Ollama model instance
-            model = Ollama(
+            # Create Raw Ollama client
+            model = RawOllamaClient(
                 base_url=self.ollama_base_url,
                 model=ollama_model_name,
                 temperature=config.temperature,
                 num_predict=config.max_tokens,
                 top_p=config.top_p,
                 repeat_penalty=config.repeat_penalty,
-                stop=config.stop_sequences,
-                # Ollama-specific parameters
-                num_ctx=config.n_ctx,
-                num_gpu=1,  # Use GPU if available
-                verbose=settings.debug,
+                stop_sequences=config.stop_sequences,
+                num_ctx=config.n_ctx
             )
             
             logger.info(f"Successfully loaded {config.name} via Ollama")
@@ -82,7 +126,7 @@ class ModelLoader:
             logger.error(f"Make sure Ollama is running and model '{ollama_model_name}' is pulled")
             raise
     
-    def load_all_models(self) -> Dict[str, Ollama]:
+    def load_all_models(self) -> Dict[str, RawOllamaClient]:
         """
         Load all models for all agents
         

@@ -31,7 +31,8 @@ class NucleiWrapper:
     def __init__(self, templates_path: Optional[str] = None):
         self.templates_path = Path(templates_path) if templates_path else None
         if self.templates_path and not self.templates_path.exists():
-            logger.warning("Nuclei templates path %s does not exist; ignoring.", self.templates_path)
+            logger.warning("Nuclei templates path %s does not exist; using default templates.", self.templates_path)
+            self.templates_path = None
         logger.info("NucleiWrapper initialized with templates %s", self.templates_path)
 
     def run_scan(self, target_path: str) -> List[Dict]:
@@ -50,7 +51,7 @@ class NucleiWrapper:
         if not target.exists():
             raise FileNotFoundError(f"Target path {target_path} does not exist.")
 
-        cmd = ["nuclei", "-target", str(target), "-json"]
+        cmd = ["nuclei", "-target", str(target), "-jsonl"]
         if self.templates_path:
             cmd.extend(["-templates", str(self.templates_path)])
 

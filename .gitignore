@@ -44,11 +44,9 @@ secrets/
 config.json
 credentials.json
 
-# Models - Large GGUF files (models/ directory, NOT src/models/)
-models/*.gguf
-models/*.bin
-models/Modelfile.*
-# Note: These are large model files that should not be committed
+# Models - Large GGUF files
+models/
+# Note: Entire models directory is ignored as requested
 
 # Local backup directory (created during merge)
 .backup_local_work/
@@ -56,11 +54,10 @@ models/Modelfile.*
 # Data & Logs
 logs/
 *.log
-data/training_datasets/
-data/red_agent_training/
-data/blue_agent_training/
-data/governance_agent_training/
-data/audit_agent_training/
+data/
+outputs/
+strix/
+neurosploit/
 
 # Database
 *.db
@@ -103,8 +100,10 @@ grafana_data/
 !.yarn/versions
 
 # Next.js
-/.next/
-/out/
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+frontend/lint_report.txt
 
 # Production build
 /build
@@ -121,3 +120,9 @@ yarn-error.log*
 # TypeScript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI Agent Specifics
+.gemini/
+.antigravity/
+brain/
+.agent/

@@ -32,11 +32,10 @@ class SemgrepWrapper:
         if config_path:
             self.config_path = Path(config_path)
         else:
-            # Default to a conventional location inside the repo
-            self.config_path = Path("./semgrep")
-        if not self.config_path.exists():
-            logger.warning("Semgrep config path %s does not exist; using default rules.", self.config_path)
-        logger.info("SemgrepWrapper initialized with config %s", self.config_path)
+            # Default to None, let run_scan pick up settings
+            self.config_path = None
+            
+        logger.info("SemgrepWrapper initialized")
 
     def run_scan(self, target_path: str) -> List[Dict]:
         """Run Semgrep against ``target_path``.
@@ -50,16 +49,18 @@ class SemgrepWrapper:
             A list of finding dictionaries parsed from Semgrep's JSON output.
         """
         target = Path(target_path)
-        if not target.exists():
-            raise FileNotFoundError(f"Target path {target_path} does not exist.")
-
-        cmd = [
-            "semgrep",
-            "--config",
-            str(self.config_path),
-            "--json",
-            str(target),
-        ]
+        if self.config_path and self.config_path.exists():
+            config_arg = str(self.config_path)
+        else:
+            from config.settings import settings
+            config_arg = settings.semgrep_rules
+        
+        # Build command with multiple --config flags
+        cmd = ["semgrep"]
+        for rule in config_arg.split(','):
+            cmd.extend(["--config", rule.strip()])
+            
+        cmd.extend(["--json", str(target)])
         logger.debug("Running Semgrep command: %s", " ".join(cmd))
         try:
             result = subprocess.run(

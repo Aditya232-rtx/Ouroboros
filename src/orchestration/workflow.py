@@ -48,16 +48,25 @@ class OuroborosWorkflow:
         """
         workflow = StateGraph(OuroborosState)
         
+        from src.orchestration.nodes.red_scan_node import red_scan_node
+        from src.orchestration.nodes.doc_initial_node import doc_initial_node
+        from src.orchestration.nodes.governance_node import governance_node
+        from src.orchestration.nodes.blue_fix_node import blue_fix_node
+        from src.orchestration.nodes.red_verify_node import red_verify_node
+        from src.orchestration.nodes.doc_final_node import doc_final_node
+        from src.orchestration.nodes.create_pr_node import create_pr_node
+        from src.orchestration.nodes.audit_node import audit_node
+        
         # Add nodes
-        workflow.add_node("red_scan", self._red_scan_node)
-        workflow.add_node("doc_initial", self._doc_initial_node)
-        workflow.add_node("governance", self._governance_node)
-        workflow.add_node("blue_fix", self._blue_fix_node)
-        workflow.add_node("red_verify", self._red_verify_node)
-        workflow.add_node("check_verification", self._check_verification_node)
-        workflow.add_node("doc_final", self._doc_final_node)
-        workflow.add_node("create_pr", self._create_pr_node)
-        workflow.add_node("audit", self._audit_node)
+        workflow.add_node("red_scan", red_scan_node)
+        workflow.add_node("doc_initial", doc_initial_node)
+        workflow.add_node("governance", governance_node)
+        workflow.add_node("blue_fix", blue_fix_node)
+        workflow.add_node("red_verify", red_verify_node)
+        workflow.add_node("check_verification", self._check_verification_node)  # Keep inline for now as it's simple logic
+        workflow.add_node("doc_final", doc_final_node)
+        workflow.add_node("create_pr", create_pr_node)
+        workflow.add_node("audit", audit_node)
         
         # Add edges
         workflow.set_entry_point("red_scan")
@@ -77,7 +86,14 @@ class OuroborosWorkflow:
             }
         )
         
-        workflow.add_edge("doc_final", "create_pr")
+        workflow.add_conditional_edges(
+            "doc_final",
+            self._route_after_doc_final,
+            {
+                "create_pr": "create_pr",
+                "skip_pr": "audit"
+            }
+        )
         workflow.add_edge("create_pr", "audit")
         workflow.add_edge("audit", END)
         
@@ -359,6 +375,12 @@ This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
         logger.info(f"Retrying fixes (attempt {state.get('retry_count', 0) + 1})")
         return "retry"
     
+    def _route_after_doc_final(self, state: OuroborosState) -> str:
+        """Route to PR creation or skip to audit."""
+        if state.get("create_pr", True):
+            return "create_pr"
+        return "skip_pr"
+    
     # ===== PUBLIC API =====
     
     async def run(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -366,7 +388,7 @@ This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
         Run the complete Ouroboros workflow.
         
         Args:
-            input_data: {repo_url, user_id, scan_profile}
+            input_data: {repo_url, user_id, scan_profile, create_pr}
         
         Returns:
             Final workflow state
@@ -379,6 +401,7 @@ This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
             "scan_profile": input_data.get("scan_profile", "standard"),
             "commit_sha": input_data.get("commit_sha", "HEAD"),
             "branch": input_data.get("branch", "main"),
+            "create_pr": input_data.get("create_pr", True),
             "workflow_start_time": datetime.now().isoformat(),
             "retry_count": 0,
             "vulnerabilities": [],

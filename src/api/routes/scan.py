@@ -21,8 +21,15 @@ router = APIRouter(prefix="/scan", tags=["scan"])
 _active_scans: dict = {}
 
 
+from src.utils.memory_logger import ScanLogHandler
+
 async def _run_scan(scan_id: str, request: ScanRequest):
     """Background task to run the security scan."""
+    # Create log handler for this scan
+    log_handler = ScanLogHandler(_active_scans[scan_id]["logs"])
+    root_logger = logging.getLogger()
+    root_logger.addHandler(log_handler)
+    
     try:
         _active_scans[scan_id]["status"] = ScanStatus.RUNNING
         _active_scans[scan_id]["current_phase"] = "initializing"
@@ -58,6 +65,9 @@ async def _run_scan(scan_id: str, request: ScanRequest):
         _active_scans[scan_id]["status"] = ScanStatus.FAILED
         _active_scans[scan_id]["error_message"] = str(e)
         _active_scans[scan_id]["completed_at"] = datetime.utcnow()
+    finally:
+        # Clean up handler to avoid memory leaks / duplicate logs
+        root_logger.removeHandler(log_handler)
 
 
 @router.post(
@@ -106,6 +116,7 @@ async def create_scan(
         "error_message": None,
         "result": None,
         "pr_url": None,
+        "logs": [],
     }
     
     # Queue the scan

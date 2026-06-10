@@ -7,7 +7,7 @@ import logging
 import json
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, ConfigDict
 from langchain_community.llms import LlamaCpp
 
 logger = logging.getLogger(__name__)
@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 class AgentInput(BaseModel):
     """Base input validation schema"""
-    pass
+    model_config = ConfigDict(extra='ignore')
 
 
 class AgentOutput(BaseModel):
@@ -146,7 +146,7 @@ class BaseAgent(ABC):
         """
         try:
             self.logger.debug(f"{self.agent_id}: Calling LLM")
-            response = self.model(prompt, **kwargs)
+            response = self.model.invoke(prompt, **kwargs)
             self.logger.debug(f"{self.agent_id}: LLM response received")
             return response
         except Exception as e:
@@ -177,5 +177,5 @@ class BaseAgent(ABC):
             return json.loads(response)
         except json.JSONDecodeError as e:
             self.logger.error(f"{self.agent_id}: Failed to parse JSON: {e}")
-            self.logger.debug(f"Raw response: {response[:500]}")
+            self.logger.error(f"Raw response: {response}")
             raise ValueError(f"Invalid JSON response from LLM: {e}")
