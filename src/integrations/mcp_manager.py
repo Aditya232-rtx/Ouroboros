@@ -5,7 +5,7 @@ import shutil
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import studio_client
+from mcp.client.stdio import stdio_client
 
 logger = logging.getLogger(__name__)
 

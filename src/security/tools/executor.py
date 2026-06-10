@@ -19,8 +19,6 @@ from dataclasses import asdict
 from src.security.models import Vulnerability, ScanResult
 from src.security.tools.runner import SandboxRunner
 
-# Assuming 'context_builder' is not directly imported here but data is passed in
-
 logger = logging.getLogger(__name__)
 
 class PentestExecutor:
@@ -45,23 +43,26 @@ class PentestExecutor:
         Returns absolute path to sandbox.
         """
         sandbox_base = "/tmp/ouroboros_sandbox"
-        # Use simple ID if scan result doesn't help make it unique enough
         scan_id = self.scan_result.scan_started.replace(":", "-").replace(".", "-")
         sandbox_path = os.path.join(sandbox_base, scan_id)
         
         if os.path.exists(sandbox_path):
-            shutil.rmtree(sandbox_path)
+            try:
+                shutil.rmtree(sandbox_path)
+            except Exception as e:
+                logger.warning(f"Failed to clean existing sandbox: {e}")
             
         try:
             logger.info(f"Cloning {repo_url} to sandbox: {sandbox_path}")
-            # Use subprocess to avoid gitpython dependency if possible, or assume git is installed
+            env = os.environ.copy()
+            env["GIT_SSL_NO_VERIFY"] = "true"
             subprocess.run(["git", "clone", "--depth", "1", repo_url, sandbox_path], 
-                         check=True, capture_output=True, timeout=120)
+                         check=True, capture_output=True, timeout=120, env=env)
             return sandbox_path
         except subprocess.CalledProcessError as e:
             logger.error(f"Clone failed: {e.stderr}")
             if os.path.exists(sandbox_path):
-                shutil.rmtree(sandbox_path) # Cleanup on fail
+                shutil.rmtree(sandbox_path) 
             return ""
         except Exception as e:
             logger.error(f"Sandbox setup failed: {e}")
@@ -70,13 +71,7 @@ class PentestExecutor:
     def run_dynamic_analysis(self, repo_url: str) -> Dict:
         """
         Orchestrates a comprehensive Dynamic Application Security Testing (DAST) workflow.
-        1. Clones the repository.
-        2. Starts the application in a sandbox.
-        3. Runs DAST tools (Nmap, Nuclei) against the running instance.
-        4. (Optional) SAST scan on the source code.
-        5. Teardowns the sandbox.
         """
-        self.logger = logger # Ensure logger is available
         logger.info(f"Starting Dynamic Analysis for {repo_url}")
         
         # 1. Clone
@@ -88,14 +83,13 @@ class PentestExecutor:
         success, app_url = runner.start()
         
         if not success:
-            logger.error(f"Failed to start sandbox app: {app_url}")
-            # Even if it failed to start, we can still do SAST
+            logger.warning(f"Failed to start sandbox app: {app_url}. Proceeding with SAST only.")
+             # Even if it failed to start, we can still do SAST
             self.run_static_analysis(sandbox_path)
-            return {"success": False, "error": f"Failed to start app: {app_url}"}
+            return {"success": True, "scan_result": self.scan_result, "note": "SAST only (Sandbox failed)"}
 
         logger.info(f"Sandbox application running at {app_url}")
         
-        # Update target to local instance for DAST
         original_target = self.target
         self.target = app_url
         
@@ -117,7 +111,7 @@ class PentestExecutor:
         """Run all SAST/SCA/Secret tools"""
         logger.info("Running Static Analysis...")
         self.run_semgrep_scan(target_path)
-        self.run_gitleaks_scan(target_path)
+        # self.run_gitleaks_scan(target_path) # Disabled by user request
         self.run_trivy_scan(target_path)
         self.run_checkov_scan(target_path)
 
@@ -126,7 +120,6 @@ class PentestExecutor:
         if not target_path or not os.path.exists(target_path):
             return {"success": False, "stderr": "Invalid target path"}
             
-        # Using built-in rules for now + basic security
         cmd = ["semgrep", "--config", "p/security-audit", "--json", target_path]
         
         result = self._run_command(cmd, timeout=600)
@@ -148,8 +141,8 @@ class PentestExecutor:
                 vuln = Vulnerability(
                     title=f"Code: {res.get('check_id', 'Unknown Issue')}",
                     severity=severity,
-                    cvss_score=0.0, # Semgrep logic needed
-                    cvss_vector="",
+                    cvss_score=0.0, 
+                    cvss_vector="N/A",
                     description=res.get("extra", {}).get("message", ""),
                     affected_endpoint=f"{path}:{res.get('start', {}).get('line', 0)}",
                     impact=f"Potential insecure code pattern in {path}",
@@ -169,9 +162,16 @@ class PentestExecutor:
         """Run Gitleaks scan for secrets"""
         if not shutil.which("gitleaks"):
              logger.warning("Gitleaks not installed.")
-             return {}
+             # Try local bin
+             local_bin = os.path.join(os.getcwd(), "bin", "gitleaks")
+             if os.path.exists(local_bin):
+                 cmd_path = local_bin
+             else:
+                 return {}
+        else:
+             cmd_path = "gitleaks"
              
-        cmd = ["gitleaks", "detect", "--source", target_path, "--report-format", "json", "--report-path", "/dev/stdout", "--no-git"]
+        cmd = [cmd_path, "detect", "--source", target_path, "--report-format", "json", "--report-path", "/dev/stdout", "--no-git"]
         result = self._run_command(cmd)
         
         if result["success"] and result["stdout"]:
@@ -182,10 +182,13 @@ class PentestExecutor:
                          title=f"Secret: {finding.get('Description', 'Potential Secret')}",
                          severity="High",
                          cvss_score=7.5,
+                         cvss_vector="N/A",
                          description=f"Found potential secret in {finding.get('File')}",
                          affected_endpoint=f"{finding.get('File')}:{finding.get('StartLine')}",
                          impact="Credentials exposure could lead to unauthorized access",
+                         poc_request="N/A",
                          poc_response=f"Match: {finding.get('Match')}",
+                         poc_payload="N/A",
                          remediation="Rotate secret and remove from history",
                          tool_output=json.dumps(finding, indent=2)
                      )
@@ -196,12 +199,17 @@ class PentestExecutor:
 
     def run_trivy_scan(self, target_path: str) -> Dict:
         """Run Trivy scan for dependencies (fs mode)"""
+        cmd_path = "trivy"
         if not shutil.which("trivy"):
-             logger.warning("Trivy not installed.")
-             return {}
+             # Check local bin
+             local_bin = os.path.join(os.getcwd(), "bin", "trivy")
+             if os.path.exists(local_bin):
+                 cmd_path = local_bin
+             else:
+                 logger.warning("Trivy not installed.")
+                 return {}
         
-        # Scans filesystem for vulnerabilities in deps
-        cmd = ["trivy", "fs", target_path, "--format", "json", "--scanners", "vuln,config", "--quiet"]
+        cmd = [cmd_path, "fs", target_path, "--format", "json", "--scanners", "vuln,config", "--quiet"]
         result = self._run_command(cmd)
         
         if result["success"] and result["stdout"]:
@@ -214,9 +222,13 @@ class PentestExecutor:
                              title=f"Dependency: {finding.get('PkgName')} {finding.get('VulnerabilityID')}",
                              severity=finding.get("Severity", "Medium").capitalize(),
                              cvss_score=0.0,
+                             cvss_vector="N/A",
                              description=finding.get("Description", ""),
                              affected_endpoint=f"{target} ({finding.get('PkgName')})",
                              impact="Vulnerable dependency component",
+                             poc_request="N/A",
+                             poc_response="N/A",
+                             poc_payload="N/A",
                              remediation=f"Upgrade to {finding.get('FixedVersion', 'latest')}",
                              references=finding.get("References", []),
                              tool_output=json.dumps(finding, indent=2)
@@ -228,9 +240,13 @@ class PentestExecutor:
                              title=f"Config: {finding.get('Title')}",
                              severity=finding.get("Severity", "Medium").capitalize(),
                              cvss_score=0.0,
+                             cvss_vector="N/A",
                              description=finding.get("Description", ""),
                              affected_endpoint=f"{target}",
                              impact="Misconfiguration vulnerability",
+                             poc_request="N/A",
+                             poc_response="N/A",
+                             poc_payload="N/A",
                              remediation=finding.get("Resolution", ""),
                              tool_output=json.dumps(finding, indent=2)
                          )
@@ -241,18 +257,13 @@ class PentestExecutor:
 
     def run_checkov_scan(self, target_path: str) -> Dict:
         """Run Checkov scan for IaC"""
-        # Checkov is python pkg, might be runnable via python -m checkov or checkov bin
         cmd = ["checkov", "-d", target_path, "--output", "json", "--quiet"]
         
-        # Might take longer
         result = self._run_command(cmd, timeout=300)
         
         if result["success"] and result["stdout"]:
              try:
-                 # Checkov output structure varies if multiple checks
-                 # Sometimes it returns a list of reports or a single obj
                  data = json.loads(result["stdout"])
-                 
                  reports = data if isinstance(data, list) else [data]
                  
                  for report in reports:
@@ -260,11 +271,15 @@ class PentestExecutor:
                      for check in report.get("results", {}).get("failed_checks", []):
                          vuln = Vulnerability(
                              title=f"IaC ({check_type}): {check.get('check_id')} - {check.get('check_name')}",
-                             severity="Medium", # Checkov doesn't always map standardized severity well
+                             severity="Medium", 
                              cvss_score=0.0,
+                             cvss_vector="N/A",
                              description=check.get("check_name", ""),
                              affected_endpoint=check.get("file_path", ""),
                              impact="Infrastructure as Code misconfiguration",
+                             poc_request="N/A",
+                             poc_response="N/A",
+                             poc_payload="N/A",
                              remediation=check.get("guideline", ""),
                              tool_output=json.dumps(check, indent=2)
                          )
@@ -279,25 +294,21 @@ class PentestExecutor:
             return
 
         data = self.recon_context.get('data', {})
-
-        # Load technologies
         techs = data.get('technologies', [])
         self.scan_result.technologies.extend(techs)
 
-        # Load open ports
         ports = data.get('open_ports', [])
         for port in ports:
             if port not in self.scan_result.open_ports:
                 self.scan_result.open_ports.append(port)
 
-        # Load existing vulns from context if any
         vulns = self.recon_context.get('vulnerabilities', {}).get('all', [])
         for v in vulns:
             vuln = Vulnerability(
                 title=v.get('title', v.get('name', 'Unknown')),
                 severity=v.get('severity', 'Info').capitalize(),
-                cvss_score=0.0, # Placeholder
-                cvss_vector="",
+                cvss_score=0.0,
+                cvss_vector="N/A",
                 description=v.get('description', ''),
                 affected_endpoint=v.get('affected_endpoint', v.get('url', self.target)),
                 impact=f"{v.get('severity', 'info')} severity finding",
@@ -309,23 +320,20 @@ class PentestExecutor:
             self.scan_result.vulnerabilities.append(vuln)
 
     def _normalize_target(self, target: str) -> str:
-        """Normalize target URL/IP"""
         target = target.strip()
         if not target.startswith(('http://', 'https://')):
             try:
                 socket.inet_aton(target.split('/')[0].split(':')[0])
-                return target  # It's an IP
+                return target 
             except socket.error:
                 return f"https://{target}"
         return target
 
     def _get_domain(self) -> str:
-        """Extract domain from target"""
         parsed = urllib.parse.urlparse(self.target)
         return parsed.netloc or parsed.path.split('/')[0]
 
     def _run_command(self, cmd: List[str], timeout: int = None) -> Dict:
-        """Run a command and capture output"""
         timeout = timeout or self.timeout
         tool_name = cmd[0] if cmd else "unknown"
 
@@ -338,12 +346,6 @@ class PentestExecutor:
             "exit_code": -1,
             "timestamp": datetime.now().isoformat()
         }
-
-        # If it's python module (checkov), shutil.which might find it in path if activated
-        # Otherwise for subprocess calls to system binaries
-        if not shutil.which(cmd[0]):
-             # Fallback check - maybe it's in a standard path not in env?
-             pass
 
         try:
             logger.info(f"Executing: {' '.join(cmd)}")
@@ -369,9 +371,7 @@ class PentestExecutor:
         return result
 
     def run_nmap_scan(self, ports: str = "1-1000", extra_args: List[str] = None) -> Dict:
-        """Run nmap port scan"""
         domain = self._get_domain()
-        # Ensure we only scan domain/IP, not full URL
         target_host = domain.split(':')[0]
         
         cmd = ["nmap", "-sV", "-p", ports, "--open", target_host]
@@ -386,7 +386,6 @@ class PentestExecutor:
         return result
 
     def _parse_nmap_output(self, output: str):
-        """Parse nmap output for open ports"""
         port_pattern = r"(\d+)/(\w+)\s+open\s+(\S+)\s*(.*)"
         for match in re.finditer(port_pattern, output):
             port_info = {
@@ -399,7 +398,6 @@ class PentestExecutor:
             logger.info(f"Found open port: {port_info}")
 
     def run_nuclei_scan(self, templates: str = None) -> Dict:
-        """Run nuclei vulnerability scan"""
         cmd = ["nuclei", "-u", self.target, "-silent", "-nc", "-j"]
         if templates:
             cmd.extend(["-t", templates])
@@ -412,7 +410,6 @@ class PentestExecutor:
         return result
 
     def _parse_nuclei_output(self, output: str):
-        """Parse nuclei JSON output for vulnerabilities"""
         for line in output.strip().split('\n'):
             if not line.strip():
                 continue
@@ -423,8 +420,8 @@ class PentestExecutor:
                 vuln = Vulnerability(
                     title=finding.get("info", {}).get("name", "Unknown"),
                     severity=severity,
-                    cvss_score=0.0, # Nuclei usually gives string severity
-                    cvss_vector=finding.get("info", {}).get("classification", {}).get("cvss-metrics", ""),
+                    cvss_score=0.0, 
+                    cvss_vector=finding.get("info", {}).get("classification", {}).get("cvss-metrics", "N/A"),
                     description=finding.get("info", {}).get("description", ""),
                     affected_endpoint=finding.get("matched-at", self.target),
                     impact=finding.get("info", {}).get("impact", f"{severity} severity vulnerability"),
@@ -442,12 +439,10 @@ class PentestExecutor:
                 continue
 
     def run_full_scan(self) -> ScanResult:
-        """Run nmap and nuclei"""
         self.run_nmap_scan()
         self.run_nuclei_scan()
         self.scan_result.scan_completed = datetime.now().isoformat()
         return self.scan_result
 
     def to_dict(self) -> Dict:
-        """Convert scan results to dictionary"""
         return self.scan_result.to_dict()

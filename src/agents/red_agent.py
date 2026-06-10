@@ -321,6 +321,7 @@ class REDAgent(BaseAgent):
             
             # --- PHASE 0: IDENTIFICATION ---
             is_repo = target.endswith(".git") or any(d in target for d in ["github.com", "gitlab.com", "bitbucket.org"])
+            is_github_link = any(h in target.lower() for h in ["github.com", "gitlab.com", "bitbucket.org"])
             is_web_app = target.startswith("http") and not is_repo
 
             # --- PHASE 1: REPOSITORY DYNAMIC ANALYSIS ---
