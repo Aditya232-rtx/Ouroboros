@@ -39,6 +39,7 @@ User → FastAPI → LangGraph Orchestrator
 
 ## Technology Stack
 
+### Backend
 - **Orchestration**: LangGraph, LangChain
 - **Models**: WhiteRabbitNeo-7B, DeepSeek-R1-7B, Phi-3.5-mini
 - **Scanning**: PyRIT, Nuclei, Semgrep, Checkov, CodeQL
@@ -47,6 +48,13 @@ User → FastAPI → LangGraph Orchestrator
 - **Audit**: immudb (immutable ledger)
 - **API**: FastAPI
 - **Database**: PostgreSQL, Redis
+
+### Frontend
+- **Framework**: Next.js 16.1.4
+- **UI Library**: React 19.2.3
+- **Styling**: Lightswind CSS
+- **Fonts**: Inter (UI) & JetBrains Mono (code)
+- **Language**: TypeScript
 
 ## Project Structure
 
@@ -63,6 +71,10 @@ ouroboros/
 │   ├── security/     # Safety gates
 │   ├── api/          # FastAPI interface
 │   └── utils/        # Utilities
+├── frontend/         # Next.js frontend application
+│   ├── app/          # Next.js app router
+│   ├── components/   # React components
+│   └── public/       # Static assets
 ├── models/           # GGUF model files (11.9 GB)
 ├── tests/            # Unit, integration, E2E tests
 └── context/          # Complete design documentation
@@ -73,11 +85,12 @@ ouroboros/
 ### Prerequisites
 
 - Python 3.11+
+- Node.js 20+
 - GPU with 8GB+ VRAM (RTX 4060 Ti or better recommended)
 - Docker and Docker Compose
 - 32GB RAM recommended
 
-### Setup
+### Backend Setup
 
 1. **Clone Repository**
    ```bash
@@ -102,13 +115,29 @@ ouroboros/
    # Edit .env with your configuration
    ```
 
-5. **Download Models** (if not already present)
-   Models are already in `./models/` directory
-
-6. **Start Services**
+5. **Start Services**
    ```bash
    docker-compose up -d  # PostgreSQL, Redis, immudb, OPA
    ```
+
+### Frontend Setup
+
+1. **Navigate to frontend**
+   ```bash
+   cd frontend
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Run development server**
+   ```bash
+   npm run dev
+   ```
+
+4. Open [http://localhost:3000](http://localhost:3000)
 
 ## Models
 
@@ -200,6 +229,7 @@ mypy src/
 - [ ] LangGraph orchestration
 - [ ] FastAPI interface
 - [ ] GitHub integration
+- [ ] Frontend War Room Dashboard
 
 ### V2 (Future)
 - Auto-merge for low-risk fixes
