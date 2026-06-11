@@ -86,6 +86,7 @@ ouroboros-ai/
 │   │   ├── __init__.py
 │   │   ├── github_api.py               # GitHub API (clone, PR creation)
 │   │   ├── google_workspace_mcp.py     # Google Docs via MCP
+│   │   ├── mcp_manager.py              # MCP Server Orchestrator (NEW)
 │   │   ├── opa_client.py               # Open Policy Agent client
 │   │   └── immudb_client.py            # Immutable ledger client
 │   │
@@ -206,7 +207,11 @@ ouroboros-ai/
 │       ├── event_logs/
 │       └── compliance_samples/
 │
-├── scripts/                             # Utility scripts
+│   ├── test_red_plus_governance.py     # RED + GOVERNANCE Integration Test
+│   ├── test_governance_risk.py         # Governance logic test
+│   ├── test_llm_sast_integration.py    # LLM SAST verification
+│   ├── run_red_agent_full_test.py      # End-to-end Red Agent test
+│   ├── debug_google_mcp.py             # MCP debugging tool
 │   ├── download_models.sh              # Download GGUF models from HuggingFace
 │   ├── setup_environment.sh            # Setup local dev environment
 │   ├── run_migrations.sh               # Database migrations
