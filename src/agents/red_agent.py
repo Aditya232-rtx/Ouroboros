@@ -356,7 +356,11 @@ class REDAgent(BaseAgent):
         
         # 1. Identify high-risk files
         # Limit to reasonable number/size to avoid OOM
-        extensions = {'.py', '.js', '.ts', '.php', '.go', '.java', '.rb', '.sh', 'Dockerfile', '.yml', '.yaml'}
+        extensions = {
+            '.py', '.js', '.ts', '.php', '.go', '.java', '.rb', '.sh', 
+            '.yml', '.yaml', '.json', '.xml', '.html', '.css', '.md', '.sql',
+            '.dockerfile', 'Dockerfile', 'Makefile', 'Jenkinsfile'
+        }
         target_files = []
         
         for p in path_obj.rglob('*'):
@@ -375,9 +379,9 @@ class REDAgent(BaseAgent):
              return 1
              
         target_files.sort(key=priority, reverse=True)
-        files_to_scan = target_files[:10] 
+        files_to_scan = target_files  # Scan ALL files as requested
         
-        self.logger.info(f"Selected {len(files_to_scan)} files for active LLM Code Review: {[f.name for f in files_to_scan]}")
+        self.logger.info(f"Selected {len(files_to_scan)} files for complete LLM Code Review: {[f.name for f in files_to_scan]}")
         
         for file_path in files_to_scan:
             try:
@@ -419,9 +423,20 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
 """
                 response = self._call_llm(prompt)
                 
-                # Parse using robust BaseAgent parser
+                # Parse using robust logic (borrowed from BlueAgent/BaseAgent upgrades)
                 try:
-                    data = self._parse_json_response(response)
+                    # Quick regex extractor for the first JSON object
+                    json_match = re.search(r'(\{.*\}|\[.*\])', response, re.DOTALL)
+                    if json_match:
+                         # Try to parse the extracted block
+                        try:
+                            data = json.loads(json_match.group(1))
+                        except:
+                            # If that fails, try the base parser
+                            data = self._parse_json_response(response)
+                    else:
+                        data = self._parse_json_response(response)
+
                     if isinstance(data, list): data = {"vulnerabilities": data}
                      
                     for v in data.get("vulnerabilities", []):
@@ -575,7 +590,14 @@ CODE CONTEXT:
 Repository: {context.get('repo_url', 'unknown')}
 Branch: {context.get('branch', 'main')}
 
-Analyze these findings and output a JSON response with your vulnerability assessment."""
+Analyze these findings and output a JSON response with your vulnerability assessment.
+
+IMPORTANT OUTPUT INSTRUCTION:
+- You MUST output ONLY valid JSON.
+- Do NOT wrap the JSON in markdown code blocks.
+- Do NOT include any introductory or concluding text.
+- The output must be a single JSON object with a 'vulnerabilities' key containing the list of vulnerabilities.
+"""
         
         self.logger.info(f"Analyzing {len(tool_findings)} tool findings with LLM...")
         

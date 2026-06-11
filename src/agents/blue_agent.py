@@ -82,7 +82,11 @@ REASONING PROTOCOL:
 
 TASK: Fix this vulnerability with SAFE, TESTED, EFFECTIVE code.
 
-OUTPUT (JSON with EXACTLY 3 fix options + reasoning):
+OUTPUT FORMAT INSTRUCTION:
+- You MUST output ONLY valid JSON.
+- Do NOT wrap in markdown code blocks like ```json ... ```.
+- Do NOT include any text before or after the JSON.
+- The JSON must have exactly this structure:
 {
   "reasoning": {
     "vulnerability_analysis": "Step-by-step analysis of the vulnerability",
@@ -262,6 +266,48 @@ Generate 3 fix options with chain-of-thought reasoning. Output JSON only."""
             # Return a default safe fix
             return [self._create_default_fix(vuln_data)]
     
+    def _parse_json_response(self, response: str) -> Dict[str, Any]:
+        """
+        Override standard JSON parsing to handle DeepSeek-R1's chatty output
+        using regex to find the first valid JSON block { ... }
+        """
+        import re
+        import json
+        
+        # 1. Try standard base processing (markdown blocks)
+        try:
+            return super()._parse_json_response(response)
+        except ValueError:
+            pass
+            
+        # 2. Aggressive Regex Search for { ... }
+        # Finds the first structure starting with { and ending with }
+        # This handles cases where LLM puts text before/after
+        try:
+            # Find the first brace
+            start_idx = response.find('{')
+            if start_idx == -1:
+                raise ValueError("No JSON object found (no '{')")
+                
+            # Track brace balance to find the matching closing brace
+            balance = 0
+            for i in range(start_idx, len(response)):
+                char = response[i]
+                if char == '{':
+                    balance += 1
+                elif char == '}':
+                    balance -= 1
+                    
+                if balance == 0:
+                    json_str = response[start_idx : i+1]
+                    return json.loads(json_str)
+            
+            raise ValueError("Unbalanced brackets in JSON response")
+            
+        except Exception as e:
+            self.logger.error(f"Aggressive JSON parsing failed: {e}")
+            raise ValueError(f"Could not extract JSON from response: {e}")
+
     async def _validate_fix(self, fix: FixOption, vuln_data: Dict[str, Any]) -> FixOption:
         """
         Validate a fix through 5 safety gates
