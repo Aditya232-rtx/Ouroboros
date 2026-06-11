@@ -16,10 +16,10 @@ from config.settings import settings
 logger = logging.getLogger(__name__)
 
 
-class GoogleWorkspaceClient:
+class GoogleWorkspaceMCP:
     """
-    Google Workspace client for creating and managing Google Docs.
-    Per 02_AGENT_SPECIFICATIONS: Auto-updating reports for live status.
+    Google Workspace MCP Integration.
+    Wraps Google Docs/Drive APIs for the Documentation Agent.
     """
     
     SCOPES = [
@@ -35,6 +35,7 @@ class GoogleWorkspaceClient:
         if settings.google_service_account_file:
             self._initialize_services()
     
+    
     def _initialize_services(self):
         """Initialize Google Docs and Drive services"""
         try:
@@ -49,6 +50,7 @@ class GoogleWorkspaceClient:
             logger.info("Google Workspace services initialized")
         except Exception as e:
             logger.error(f"Failed to initialize Google Workspace: {e}")
+
     
     def create_document(
         self, 
@@ -207,4 +209,4 @@ class GoogleWorkspaceClient:
 
 
 # Global instance
-google_workspace_client = GoogleWorkspaceClient()
+google_workspace_mcp = GoogleWorkspaceMCP()

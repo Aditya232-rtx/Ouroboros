@@ -8,6 +8,8 @@ from typing import Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, Field
 
+import re
+import json
 from src.agents.base_agent import BaseAgent, AgentInput, AgentOutput
 from src.models import get_model
 
@@ -75,6 +77,15 @@ class GovernanceAgent(BaseAgent):
         "require": 80,
         "escalate": 100
     }
+
+    # CVSS Default Map
+    SEVERITY_MAP = {
+        "critical": 9.5,
+        "high": 8.0,
+        "medium": 5.5,
+        "low": 3.0,
+        "info": 1.0
+    }
     
     def __init__(self):
         """Initialize GOVERNANCE Agent with Phi-3.5 model"""
@@ -133,10 +144,14 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
         
         try:
             for vuln in validated_input.vulnerabilities:
-                # Calculate risk score
+                # 1. Assess Security Risk via LLM (CISO Persona)
+                ciso_risk_multiplier = await self._assess_ciso_risk(vuln)
+                
+                # 2. Calculate risk score
                 risk_score = self._calculate_risk_score(
                     vuln,
-                    validated_input.environment
+                    validated_input.environment,
+                    ciso_risk_multiplier
                 )
                 
                 # Determine autonomy level
@@ -146,15 +161,17 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
                     "vulnerability_id": vuln.get("id"),
                     "risk_score": risk_score,
                     "autonomy_level": autonomy_level,
-                    "reasoning": f"Risk score {risk_score:.1f} ({autonomy_level})",
-                    "original_vulnerability": vuln
+                    "reasoning": f"Risk score {risk_score:.1f} (CISO Risk: {ciso_risk_multiplier}x)",
+                    "original_vulnerability": vuln,
+                    "ciso_risk_multiplier": ciso_risk_multiplier
                 }
                 
                 prioritized_items.append(item)
                 decisions.append({
                     "vulnerability_id": vuln.get("id"),
                     "decision": "prioritized",
-                    "risk_score": risk_score
+                    "risk_score": risk_score,
+                    "ciso_risk_multiplier": ciso_risk_multiplier
                 })
                 risk_scores[vuln.get("id")] = risk_score
             
@@ -197,20 +214,94 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
                 "risk_scores": {}
             }
     
+    async def _assess_ciso_risk(self, vulnerability: Dict[str, Any]) -> float:
+        """
+        Use LLM to assess security risk as a CISO.
+        Returns a multiplier (1.0 - 3.0).
+        """
+        try:
+            description = vulnerability.get("description", "No description")
+            location = vulnerability.get("location", "Unknown")
+            vuln_type = vulnerability.get("type", "Unknown")
+            
+            prompt = f"""
+Act as a CHIEF INFORMATION SECURITY OFFICER (CISO). 
+Assess the RISK of this vulnerability based on EXPLOITABILITY, LATERAL MOVEMENT, and COMPLIANCE.
+
+VULNERABILITY: {vuln_type}
+LOCATION: {location}
+DESCRIPTION: {description}
+
+RISK EVALUATION CRITERIA:
+1. CRITICAL (3.0) [REQUIREMENTS MUST BE MET]: 
+   - EXPLOITABILITY: Internet-facing AND has a clear exploit path (RCE, Auth Bypass).
+   - COMPLIANCE: CONFIRMED handling of PII/PCI/PHI data.
+
+2. HIGH (2.0):
+   - Internal Critical Systems (Production DB, Core Auth Logic).
+   - Stored XSS that is accessible to other users.
+
+3. MEDIUM (1.5):
+   - Reflected XSS.
+   - Standard bugs in non-critical features.
+
+4. LOW (1.0) [DEFAULT FOR NON-CRITICAL]:
+   - Vulnerabilities in TEST files, MOCKS, EXAMPLES, or UNUSED SCRIPTS (e.g., cleanup.sh).
+   - Internal-only developer tools without prod access.
+   - Minor UI/UX issues.
+
+IMPORTANT: If the file path implies a script (e.g., .sh), test (e.g., test_), or unused utility, IT MUST BE LOW RISK.
+
+Return a single JSON object (No Markdown):
+{{
+  "reasoning": "Brief CISO assessment...",
+  "risk_multiplier": <FLOAT>
+}}
+"""
+            # Log the prompt for debugging
+            self.logger.debug(f"Governance Prompt for {vuln_type}: {prompt[:100]}...")
+            
+            response = self._call_llm(prompt)
+            self.logger.debug(f"Governance LLM Response: {response}")
+            
+            # Simple parsing
+            match = re.search(r'"risk_multiplier":\s*([\d\.]+)', response)
+            if match:
+                return float(match.group(1))
+            
+            # Fallback to JSON parsing if regex fails
+            json_match = re.search(r'(\\{.*\\}|\\[.*\\])', response, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group(1))
+                return float(data.get("risk_multiplier", 1.5))
+                
+            return 1.5 # Default medium
+            
+        except Exception as e:
+            self.logger.warning(f"CISO risk assessment failed: {e}")
+            return 1.5 # Default
+
     def _calculate_risk_score(
         self, 
         vulnerability: Dict[str, Any],
-        environment: str
+        environment: str,
+        risk_multiplier: float
     ) -> float:
         """Calculate risk score using formula"""
-        cvss = vulnerability.get("cvss", 5.0)
+        # Get CVSS or map from Severity
+        cvss = vulnerability.get("cvss")
+        if not cvss:
+            severity = vulnerability.get("severity", "medium").lower()
+            cvss = self.SEVERITY_MAP.get(severity, 5.5)
+            
         env_multiplier = self.ENV_MULTIPLIERS.get(environment, 5.0) # Default to production/high
         
         # Exploit ease from PoC success rate or confidence
         poc_rate = vulnerability.get("confidence", 0.5)
         exploit_ease = 0.2 + (poc_rate * 0.8)  # 0.2 to 1.0
         
-        risk_score = cvss * env_multiplier * exploit_ease
+        # Formula: Base * Env * CISO Risk * Exploitability
+        risk_score = cvss * env_multiplier * exploit_ease * risk_multiplier
         return min(100.0, risk_score)
     
     def _determine_autonomy(self, risk_score: float) -> str:

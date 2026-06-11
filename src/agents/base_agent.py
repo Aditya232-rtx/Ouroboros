@@ -155,7 +155,7 @@ class BaseAgent(ABC):
     
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
-        Parse LLM JSON response
+        Parse LLM JSON response with robustness for common LLM errors (trailing commas)
         
         Args:
             response: Raw LLM response
@@ -165,16 +165,33 @@ class BaseAgent(ABC):
         """
         try:
             # Extract JSON from markdown code blocks if present
-            if "```json" in response:
-                json_start = response.find("```json") + 7
-                json_end = response.find("```", json_start)
-                response = response[json_start:json_end].strip()
-            elif "```" in response:
-                json_start = response.find("```") + 3
-                json_end = response.find("```", json_start)
-                response = response[json_start:json_end].strip()
+            text = response.strip()
+            if "```json" in text:
+                json_start = text.find("```json") + 7
+                json_end = text.find("```", json_start)
+                text = text[json_start:json_end].strip()
+            elif "```" in text:
+                json_start = text.find("```") + 3
+                json_end = text.find("```", json_start)
+                text = text[json_start:json_end].strip()
             
-            return json.loads(response)
+            # Simple cleanups
+            text = text.lstrip("`") # Remove leading backticks if any
+            
+            # Try standard load
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                # Common Error 1: Trailing commas
+                # Regex: Find comma followed by optional whitespace and closing brace/bracket
+                import re 
+                text = re.sub(r',(\s*[}\]])', r'\1', text)
+                
+                # Common Error 2: Missing quotes on keys (simple heuristic, not full parser)
+                # This is hard to fix reliably with regex, but we can try simple cases
+                
+                return json.loads(text)
+                
         except json.JSONDecodeError as e:
             self.logger.error(f"{self.agent_id}: Failed to parse JSON: {e}")
             self.logger.error(f"Raw response: {response}")

@@ -28,6 +28,7 @@ from src.api.middleware.jwt_utils import (
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
 )
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -106,16 +107,15 @@ async def login(
         expires_delta=access_token_expires,
     )
     
-    refresh_token = create_refresh_token(
-        data={"sub": user.user_id},
-    )
-    
+    # Determine if we should use secure cookies (only in production)
+    use_secure_cookies = settings.environment == "production"
+
     # Set tokens in HttpOnly cookies
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=True,  # Set to True in production
+        secure=use_secure_cookies,
         samesite="lax",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
@@ -124,7 +124,7 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
-        secure=True,  # Set to True in production
+        secure=use_secure_cookies,
         samesite="lax",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
@@ -194,12 +194,15 @@ async def refresh_token(
         data={"sub": user.user_id},
     )
     
+    # Determine if we should use secure cookies (only in production)
+    use_secure_cookies = settings.environment == "production"
+    
     # Update cookies
     response.set_cookie(
         key="access_token",
         value=f"Bearer {access_token}",
         httponly=True,
-        secure=True,
+        secure=use_secure_cookies,
         samesite="lax",
         max_age=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
     )
@@ -208,7 +211,7 @@ async def refresh_token(
         key="refresh_token",
         value=new_refresh_token,
         httponly=True,
-        secure=True,
+        secure=use_secure_cookies,
         samesite="lax",
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
     )
