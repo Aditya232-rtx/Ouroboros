@@ -203,9 +203,13 @@ class GitHubClient:
             raise ValueError("GitHub client not initialized")
         
         logger.info(f"Creating PR: {title}")
+        logger.info(f"  Target repo: {repo_full_name}")
+        logger.info(f"  Head: {head_branch}")
+        logger.info(f"  Base: {base_branch}")
         
         try:
             repo = self.client.get_repo(repo_full_name)
+            logger.info(f"  Got repo: {repo.full_name} (default branch: {repo.default_branch})")
             
             # Create PR
             pr = repo.create_pull(
@@ -214,6 +218,13 @@ class GitHubClient:
                 head=head_branch,
                 base=base_branch
             )
+            
+            logger.info(f"✅ PR API Response:")
+            logger.info(f"   - PR Number: {pr.number}")
+            logger.info(f"   - PR URL: {pr.html_url}")
+            logger.info(f"   - PR State: {pr.state}")
+            logger.info(f"   - PR Head: {pr.head.ref} (sha: {pr.head.sha[:7]})")
+            logger.info(f"   - PR Base: {pr.base.ref}")
             
             # Request reviewers (minimum 2 for V1)
             if reviewers and len(reviewers) >= 2:
@@ -231,6 +242,8 @@ class GitHubClient:
         
         except GithubException as e:
             logger.error(f"Failed to create PR: {e}")
+            logger.error(f"  Status: {e.status}")
+            logger.error(f"  Data: {e.data}")
             raise
 
 

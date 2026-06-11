@@ -68,6 +68,7 @@ class ModelLoader:
             # Map our config model names to Ollama model names
             "WhiteRabbitNeo-7B": "whiterabbitneo",
             "Qwen2.5-Coder-3B": "ouroboros-red",
+            "Qwen2.5-Coder-3B-Blue": "ouroboros-blue",
             "DeepSeek-Coder-1.3B": "ouroboros-blue",
             "Phi-3-mini-4k": "ouroboros-support"
         }

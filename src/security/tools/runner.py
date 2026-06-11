@@ -196,13 +196,29 @@ CMD ["python", "app.py"]
             exposed_port = "3000"
         elif "5000/tcp" in inspect_res.stdout:
             exposed_port = "5000"
+        
+        # Check if app needs database (package.json has pg, mysql, mongo, etc.)
+        needs_db = self._app_needs_database()
+        
+        if needs_db:
+            # Use host network so app can reach host's database services
+            logger.info("App appears to need database. Using host network mode.")
+            run_cmd = [
+                "docker", "run", "-d", 
+                "--name", self.container_id,
+                "--network", "host",
+                image_name
+            ]
+            # With host network, the app's port IS the host port
+            self.port = int(exposed_port)
+        else:
+            run_cmd = [
+                "docker", "run", "-d", 
+                "--name", self.container_id,
+                "-p", f"{self.port}:{exposed_port}",
+                image_name
+            ]
             
-        run_cmd = [
-            "docker", "run", "-d", 
-            "--name", self.container_id,
-            "-p", f"{self.port}:{exposed_port}",
-            image_name
-        ]
         logger.info(f"Running: {' '.join(run_cmd)}")
         run_res = subprocess.run(run_cmd, capture_output=True, text=True)
         
@@ -214,6 +230,38 @@ CMD ["python", "app.py"]
             return True, self.host_url
         else:
              return False, "Service failed to respond"
+    
+    def _app_needs_database(self) -> bool:
+        """Check if the app requires a database connection."""
+        db_indicators = ["pg", "mysql", "mysql2", "mongodb", "mongoose", "sequelize", "typeorm", "prisma", "psycopg2", "pymongo", "sqlalchemy"]
+        
+        # Check package.json for Node.js
+        package_json = self.sandbox_path / "package.json"
+        if package_json.exists():
+            try:
+                import json
+                data = json.loads(package_json.read_text())
+                deps = list(data.get("dependencies", {}).keys()) + list(data.get("devDependencies", {}).keys())
+                for dep in deps:
+                    if dep in db_indicators:
+                        logger.info(f"Detected database dependency: {dep}")
+                        return True
+            except Exception:
+                pass
+        
+        # Check requirements.txt for Python
+        requirements = self.sandbox_path / "requirements.txt"
+        if requirements.exists():
+            try:
+                content = requirements.read_text().lower()
+                for indicator in db_indicators:
+                    if indicator in content:
+                        logger.info(f"Detected database dependency: {indicator}")
+                        return True
+            except Exception:
+                pass
+        
+        return False
 
     def stop(self):
         """Teardown."""

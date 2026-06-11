@@ -334,7 +334,8 @@ class REDAgent(BaseAgent):
                 "vulnerabilities": [v.model_dump() for v in high_confidence_vulns],
                 "statistics": statistics,
                 "summary": statistics, # For script compatibility
-                "scan_complete": True
+                "scan_complete": True,
+                "sandbox_path": sandbox_path  # Pass to Blue Agent for file reading
             }
             
         except Exception as e:
@@ -349,41 +350,95 @@ class REDAgent(BaseAgent):
     async def _run_llm_sast_scan(self, sandbox_path: str, repo_url: str) -> List[Dict]:
         """
         [Active LLM SAST]
-        Walks the sandbox, identifies high-risk files, and asks the LLM to review them directly.
+        Walks the sandbox, identifies ALL code/config files, and asks the LLM to review them.
+        Scans everything except node_modules, venv, .git, and binary files.
         """
         findings = []
         path_obj = Path(sandbox_path)
         
-        # 1. Identify high-risk files
-        # Limit to reasonable number/size to avoid OOM
-        extensions = {
-            '.py', '.js', '.ts', '.php', '.go', '.java', '.rb', '.sh', 
-            '.yml', '.yaml', '.json', '.xml', '.html', '.css', '.md', '.sql',
-            '.dockerfile', 'Dockerfile', 'Makefile', 'Jenkinsfile'
+        # 1. Identify ALL source/config files (be inclusive, not exclusive)
+        # Include common code and config extensions
+        code_extensions = {
+            '.py', '.js', '.ts', '.jsx', '.tsx', '.php', '.go', '.java', '.rb', '.sh', '.bash',
+            '.c', '.cpp', '.h', '.hpp', '.cs', '.rs', '.swift', '.kt', '.scala', '.lua',
+            '.pl', '.pm', '.r', '.m', '.mm', '.asm', '.s'
         }
+        config_extensions = {
+            '.yml', '.yaml', '.json', '.xml', '.toml', '.ini', '.cfg', '.conf', '.env',
+            '.properties', '.gradle', '.sbt', '.pom'
+        }
+        web_extensions = {
+            '.html', '.htm', '.css', '.scss', '.sass', '.less', '.vue', '.svelte',
+            '.pug', '.ejs', '.hbs', '.handlebars', '.mustache', '.njk', '.twig', '.blade.php'
+        }
+        infra_extensions = {
+            '.tf', '.hcl', '.sql', '.graphql', '.proto'
+        }
+        # Files without extensions that are important
+        # NOTE: Dockerfile is EXCLUDED - we auto-generate it for apps without one
+        special_files = {
+            'Makefile', 'Jenkinsfile', 'Vagrantfile', 'Procfile',
+            'Gemfile', 'Rakefile', '.htaccess', '.env', '.gitignore', 'requirements.txt',
+            'package.json', 'composer.json', 'Cargo.toml', 'go.mod', 'pom.xml'
+        }
+        
+        # Files to explicitly skip (auto-generated or not part of original source)
+        skip_files = {'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml'}
+        
+        all_extensions = code_extensions | config_extensions | web_extensions | infra_extensions
+        
+        # Directories to skip (these are dependencies or generated, not source code)
+        # Note: These are checked against RELATIVE paths, not absolute
+        skip_dirs = {
+            'node_modules', 'venv', '.venv', 'vendor', 'dist', 'build', 'target',
+            '__pycache__', '.git', '.svn', '.hg', 'scan_results', 'coverage',
+            'bin', 'obj', '.next', '.nuxt', 'out', '.cache'
+            # Removed 'tmp' - it was matching /tmp/ system directory!
+        }
+        
         target_files = []
         
         for p in path_obj.rglob('*'):
-            if p.is_file() and p.suffix in extensions and not any(part.startswith('.') for part in p.parts):
-                 # Skip tests, node_modules, etc.
-                 if 'node_modules' in str(p) or 'venv' in str(p) or 'scan_results' in str(p):
-                     continue
-                 target_files.append(p)
-
-        # 2. Analyze each file (limit to top 10 most interesting for prototype)
-        # Prioritize files with 'auth', 'login', 'config', 'db', 'api' in name
+            if not p.is_file():
+                continue
+            
+            # Skip auto-generated files (Dockerfile, docker-compose)
+            if p.name in skip_files:
+                continue
+            
+            # Get path RELATIVE to sandbox, not absolute path
+            try:
+                rel_path = p.relative_to(path_obj)
+                rel_parts = rel_path.parts
+            except ValueError:
+                continue
+                
+            # Skip files in excluded directories (checking relative path only)
+            if any(skip_dir in rel_parts for skip_dir in skip_dirs):
+                continue
+            
+            # Include if extension matches OR if it's a special file
+            if p.suffix.lower() in all_extensions or p.name in special_files:
+                target_files.append(p)
+        
+        # 2. Sort by priority (security-relevant files first)
         def priority(f):
-             name = f.name.lower()
-             if any(k in name for k in ['auth', 'login', 'security', 'db', 'database', 'config', 'api', 'server', 'app']):
-                 return 2
-             return 1
+            name = f.name.lower()
+            # High priority: security, auth, config, database, API files
+            if any(k in name for k in ['auth', 'login', 'security', 'password', 'secret', 'cred', 'token']):
+                return 4
+            if any(k in name for k in ['db', 'database', 'sql', 'query', 'model']):
+                return 3
+            if any(k in name for k in ['config', 'setting', 'env', 'api', 'server', 'app', 'index', 'main']):
+                return 2
+            return 1
              
         target_files.sort(key=priority, reverse=True)
-        files_to_scan = target_files  # Scan ALL files as requested
         
-        self.logger.info(f"Selected {len(files_to_scan)} files for complete LLM Code Review: {[f.name for f in files_to_scan]}")
+        # Log all files being scanned (no artificial limit)
+        self.logger.info(f"LLM SAST: Scanning {len(target_files)} files: {[f.name for f in target_files]}")
         
-        for file_path in files_to_scan:
+        for file_path in target_files:
             try:
                 content = file_path.read_text(errors='ignore')
                 if not content or len(content) > 8000: # Skip empty or too large files
