@@ -7,7 +7,8 @@ import logging
 import json
 import hashlib
 import uuid
-from typing import List, TypedDict, Literal, Optional, Any
+from typing import List, Literal, Optional, Any
+from typing_extensions import TypedDict
 from datetime import datetime
 from pathlib import Path
 

@@ -79,6 +79,7 @@ class FixSummary(BaseModel):
 class ScanStatusResponse(BaseModel):
     """Response for scan status query."""
     scan_id: str
+    repo_url: Optional[str] = None
     status: ScanStatus
     progress_percent: int = Field(ge=0, le=100)
     current_phase: str

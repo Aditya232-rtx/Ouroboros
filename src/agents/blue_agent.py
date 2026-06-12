@@ -75,46 +75,97 @@ class BLUEAgent(BaseAgent):
         super().__init__(model=model, agent_id="BLUE")
         
         # Comprehensive System Prompt - Handles all vulnerability types
-        self.system_prompt = """You are a security expert who fixes vulnerabilities in code.
+        self.system_prompt = """You are an elite cybersecurity architect and defensive security specialist.
+
+## SYSTEMATIC DEBUGGING METHODOLOGY
+
+Before generating ANY fix, you MUST think through the problem systematically like a cybersecurity architect:
+
+### 1. ROOT CAUSE ANALYSIS
+- **Understand the vulnerability at its core**: What specific flaw in the code creates the attack surface?
+- **Trace the attack vector**: How would an attacker exploit this? What's the attack chain?
+- **Identify the weakness category**: Is this input validation? Authorization? Cryptography? Configuration?
+
+### 2. CONTEXT ANALYSIS  
+- **Code context**: What is this code trying to accomplish? What is its intended functionality?
+- **Execution environment**: Where does this code run? What privileges does it have?
+- **Data flow**: How does untrusted data flow through the system? Where are the trust boundaries?
+- **Dependencies**: What libraries, frameworks, or infrastructure does this rely on?
+
+### 3. DEFENSE-IN-DEPTH REASONING
+- **Primary defense**: What is the BEST way to eliminate this vulnerability class entirely?
+- **Secondary defenses**: What additional layers can we add (validation, encoding, rate limiting)?  
+- **Fail-safe mechanisms**: If the primary defense fails, what prevents exploitation?
+- **Detection & monitoring**: How can we detect attempted exploitation?
+
+### 4. FIX DESIGN
+- **Minimal change principle**: What is the SMALLEST change that eliminates the vulnerability?
+- **Framework-native solutions**: Does the framework provide a secure pattern for this?
+- **Safe API selection**: What is the security-focused API/library for this use case?
+- **Breaking change analysis**: Will this fix break existing functionality or integrations?
+
+### 5. VERIFICATION STRATEGY
+- **Test the exploit**: Can we verify the original vulnerability is exploitable?
+- **Test the fix**: Does the fix prevent the exploit without breaking functionality?
+- **Edge cases**: What edge cases or bypass techniques should we test?
+- **Regression check**: Does this fix introduce new vulnerabilities?
 
 ## YOUR EXPERTISE
-- Secure coding in Python, JavaScript, Java, Go, PHP, Rust
-- Container security (Docker, Kubernetes)
-- Infrastructure as Code security (Terraform, CloudFormation)
-- OWASP Top 10 and CWE vulnerability patterns
-- Defense-in-depth security principles
+- Secure coding in Python, JavaScript, Java, Go, PHP, Rust, C/C++
+- Container security (Docker, Kubernetes) and orchestration
+- Infrastructure as Code security (Terraform, CloudFormation, Ansible)
+- OWASP Top 10, CWE Top 25, and CVE patterns
+- Defense-in-depth and zero-trust security principles
+- Cryptographic implementations and protocol security
+- Cloud security (AWS, GCP, Azure) and serverless architectures
 
-## FIX PRINCIPLES
-1. Understand the ROOT CAUSE before fixing
-2. Use safe APIs and parameterized queries
-3. Validate input, encode output
-4. Make minimal, surgical changes
-5. Preserve existing functionality
+## FIX PRINCIPLES (Applied After Analysis)
+1. **Root Cause Elimination**: Fix the underlying cause, not symptoms
+2. **Safe by Default**: Use secure APIs and parameterized queries
+3. **Input Validation & Output Encoding**: Validate all inputs, encode all outputs
+4. **Principle of Least Privilege**: Minimize permissions, capabilities, and access
+5. **Fail Securely**: Ensure failures don't expose vulnerabilities
+6. **Surgical Changes**: Make minimal, focused changes that preserve functionality
+7. **Defense Depth**: Layer multiple security controls
 
 ## COMMON FIX PATTERNS BY CATEGORY
 
 ### Code Vulnerabilities
-- SQL Injection: Use parameterized queries, never string concat
-- XSS: Use html.escape(), textContent, or template auto-escaping
-- Command Injection: Use subprocess with list args, no shell=True
-- Path Traversal: Use os.path.basename() or validate against allowlist
-- SSRF: Validate URLs against domain allowlist
+- **SQL Injection**: Use parameterized queries/prepared statements, NEVER string concatenation
+  - Example: `cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))`
+- **XSS**: Use context-aware output encoding (html.escape, textContent, template auto-escaping)
+  - Example: `element.textContent = user_input` (not innerHTML)
+- **Command Injection**: Use subprocess with list args, NEVER shell=True
+  - Example: `subprocess.run(["convert", input_file, output_file])` (not shell strings)
+- **Path Traversal**: Use path normalization and validation against allowlist
+  - Example: `safe_path = os.path.basename(user_input)` or `pathlib.Path().resolve()`
+- **SSRF**: Validate URLs against domain allowlist, block private IP ranges
+  - Example: Block 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 
 ### Container Security (Dockerfile)
-- Root User (CWE-250): Add USER non-root instruction
-  Example: USER node or USER 1000:1000
-- Missing HEALTHCHECK (CWE-20): Add HEALTHCHECK instruction
-  Example: HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/ || exit 1
-- Unpinned Base Image: Use specific version tags
-  Example: FROM node:18.19.0-alpine instead of FROM node:latest
-- Secrets in ENV: Use build args or secrets management
-  Example: Use --mount=type=secret instead of ENV
+- **Root User (CWE-250)**: Add USER instruction for non-root execution
+  - Example: `USER node` or `USER 1000:1000` before CMD/ENTRYPOINT
+- **Missing HEALTHCHECK (CWE-20)**: Add health monitoring
+  - Example: `HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost:8080/health || exit 1`
+- **Unpinned Base Image**: Use specific version tags with digest pinning
+  - Example: `FROM node:18.19.0-alpine@sha256:...` instead of `FROM node:latest`
+- **Secrets in ENV**: Use build secrets or secrets management
+  - Example: `RUN --mount=type=secret,id=api_key script.sh` instead of `ENV API_KEY=secret`
 
 ### Configuration Security
-- Debug Mode: Ensure DEBUG=False in production
-- CORS Misconfiguration: Restrict Access-Control-Allow-Origin
-- Missing Security Headers: Add CSP, X-Frame-Options, etc.
-- Insecure TLS: Enforce TLS 1.2+ with strong ciphers"""
+- **Debug Mode**: Ensure DEBUG=False/off in production environments
+- **CORS Misconfiguration**: Restrict Access-Control-Allow-Origin to specific domains
+- **Missing Security Headers**: Add CSP, X-Frame-Options, HSTS, X-Content-Type-Options
+- **Insecure TLS**: Enforce TLS 1.2+ with strong cipher suites, disable weak protocols
+
+## OUTPUT FORMAT
+For each vulnerability, provide:
+1. **Root Cause Analysis**: 2-3 sentences explaining WHY this is vulnerable
+2. **Fix Approach**: The security pattern being applied
+3. **Code Diff**: Before/After with line numbers and context
+4. **Test Strategy**: How to verify the fix works and doesn't break functionality
+5. **Confidence Score**: 0-100 based on fix certainty and testing coverage"""
+
         
         # Fix templates by vulnerability type (fallback when LLM fails)
         # Extended with patterns from blue_agent_system_prompt.md
@@ -207,7 +258,7 @@ class BLUEAgent(BaseAgent):
         
         Steps:
         1. Analyze vulnerability with DeepSeek-R1
-        2. Generate 3 fix options
+        2. Generate 2 fix options (conservative vs balanced)
         3. Validate each fix through 5 safety gates
         4. Select best fix (highest confidence + all gates passed)
         """
@@ -215,8 +266,8 @@ class BLUEAgent(BaseAgent):
         self.logger.info(f"Generating fix {fix_id} for {input_data['vulnerability_type']}")
         
         try:
-            # Step 1: Generate fix options with DeepSeek-R1
-            self.logger.info("Generating fix options with DeepSeek-R1...")
+            # Step 1: Generate fix options with Shared Model
+            self.logger.info("Generating fix options with Shared Model...")
             fix_options = await self._generate_fixes(input_data)
             
             # Step 2: Validate each fix through safety gates
@@ -414,8 +465,8 @@ class BLUEAgent(BaseAgent):
         # Get CWE-specific fix guidance
         fix_guidance = self._get_cwe_fix_guidance(cwe, vuln_type, language)
         
-        # Construct simple Markdown-based prompt (no complex JSON required)
-        prompt = f"""You are a security expert. Fix this vulnerability.
+        # Construct multi-option prompt with SAFETY GATE AWARENESS
+        prompt = f"""You are a security expert. Generate 2 DISTINCT fix options for this vulnerability.
 
 ## VULNERABILITY
 - Type: {vuln_type}
@@ -429,86 +480,122 @@ class BLUEAgent(BaseAgent):
 {vuln_code}
 ```
 
-## REQUIRED FIX
+## REQUIRED FIX GUIDANCE
 {fix_guidance}
 
-## YOUR TASK
-Provide the FIXED code that removes this vulnerability.
+## CRITICAL SAFETY REQUIREMENTS (ALL FIXES MUST FOLLOW):
+❌ NO eval(), exec(), or shell=True in fixes
+❌ NO hardcoded passwords, API keys, or secrets
+❌ NO broken authentication patterns
+✅ MUST validate all user inputs
+✅ MUST encode/escape all outputs
+✅ MUST use safe APIs (parameterized queries, etc)
 
-Respond in this EXACT format:
+## YOUR TASK: Generate 2 DISTINCT FIX OPTIONS
+
+### OPTION 1 - CONSERVATIVE (Minimal Change):
+- Smallest possible code modification
+- Maximum backward compatibility  
+- Quick to implement and test
+- Lower security hardening but passes safety gates
+
+### OPTION 2 - BALANCED (Standard Secure Fix):
+- Industry-standard secure implementation
+- Defense-in-depth approach
+- Balance security with maintainability
+- Preferred approach for production
+
+Respond with 2 SEPARATE sections (OPTION 1, OPTION 2), each in this format:
+
+## OPTION 1
 
 ### ROOT CAUSE
-Brief explanation of why this code is vulnerable.
+Brief explanation.
 
 ### VULNERABLE CODE
 ```
-<paste the exact vulnerable lines that need to be replaced>
+<exact vulnerable code>
 ```
 
-### FIXED CODE  
+### FIXED CODE
 ```
-<your secure replacement code - complete and working>
+<your secure fix following safety requirements>
 ```
 
 ### EXPLANATION
-What your fix does to prevent the vulnerability.
+What this fix does.
 
 IMPORTANT:
-- The VULNERABLE CODE must match EXACTLY what's in the file
-- The FIXED CODE must be complete and working (not pseudocode)
-- Keep changes minimal - only fix the security issue
-- MUST include the required fix from above"""
+- Generate 2 MEANINGFULLY DIFFERENT options (conservative vs balanced)
+- ALL fixes MUST pass safety gates (no eval/exec/shell, no hardcoded secrets)
+- FIXED CODE must be complete and working (not pseudocode)"""
         
-        # Try up to 2 times
-        for attempt in range(2):
+        # Parse multi-option response
+        fixes = []
+        for option_num in range(1, 3):  # Generate 2 options only
             try:
-                response = self._call_llm(prompt)
+                response = self._call_llm(prompt) if option_num == 1 else response
                 
-                # Parse Markdown response (much simpler than JSON!)
-                fix_data = self._parse_markdown_response(response, file_path, vuln_code, vuln_type)
+                # Extract this option's section
+                option_pattern = rf"##\s*OPTION\s*{option_num}(.*?)(?=##\s*OPTION\s*{option_num+1}|\Z)"
+                import re
+                option_match = re.search(option_pattern, response, re.DOTALL | re.IGNORECASE)
+                
+                if option_match:
+                    option_text = option_match.group(1)
+                else:
+                    # If structured response fails, try to parse as single option
+                    option_text = response if option_num == 1 else ""
+                
+                if not option_text:
+                    break  # No more options found
+                
+                # Parse this option's fix data
+                fix_data = self._parse_markdown_response(option_text, file_path, vuln_code, vuln_type)
                 
                 if fix_data:
-                    self.logger.info(f"Root cause: {fix_data.get('reasoning', 'N/A')[:100]}")
-                    
-                    # Create FixOption
-                    # Generate valid Python test function name (sanitize spaces and special chars)
                     safe_vuln_name = re.sub(r'[^a-zA-Z0-9]', '_', vuln_type).lower().strip('_')
+                    
+                    # Determine approach based on option number
+                    approaches = ["conservative", "balanced"]
+                    descriptions = [
+                        f"Conservative fix for {vuln_type} (minimal change)",
+                        f"Balanced fix for {vuln_type} (standard security)"
+                    ]
+                    
                     fix = FixOption(
-                        option=1,
-                        description=fix_data.get("description", f"Fix {vuln_type}"),
-                        approach="defense_in_depth",
+                        option=option_num,
+                        description=descriptions[option_num - 1],
+                        approach=approaches[option_num - 1],
                         code_diff=CodeDiff(
                             file=fix_data.get("file", file_path),
                             before=fix_data.get("before", ""),
                             after=fix_data.get("after", ""),
                             lines_changed=len(fix_data.get("after", "").split("\n"))
                         ),
-                        test_code=f"def test_{safe_vuln_name}_fix():\n    # Test that vulnerability is fixed\n    assert True  # Placeholder - actual tests depend on vulnerability type\n",
+                        test_code=f"def test_{safe_vuln_name}_option{option_num}_fix():\n    # Option {option_num}: {approaches[option_num-1]} approach\n    assert True\n",
                         safety_gates={},
-                        confidence=0.8,
+                        confidence=0.8 if option_num == 2 else (0.7 if option_num == 1 else 0.9),
                         recommendation="PENDING",
                         reasoning=fix_data.get("reasoning", "")
                     )
-                    
-                    self.logger.info(f"Generated fix using Markdown parsing")
-                    return [fix]
+                    fixes.append(fix)
+                    self.logger.info(f"Generated Option {option_num}: {approaches[option_num-1]}")
                     
             except Exception as e:
-                self.logger.warning(f"Attempt {attempt + 1} failed: {e}")
-                if attempt == 0:
-                    # Retry with even simpler prompt
-                    prompt = f"""Fix this {vuln_type} vulnerability in {file_path}:
-
-```
-{vuln_code[:1000]}
-```
-
-Show the VULNERABLE CODE and FIXED CODE in separate code blocks."""
-                    continue
+                self.logger.warning(f"Failed to parse option {option_num}: {e}")
         
-        # All attempts failed - use template fallback
-        self.logger.warning("Markdown parsing failed, using template-based fix")
-        return [self._create_template_fix(vuln_data)]
+        # If we got fewer than 3 options, add template-based fallbacks
+        while len(fixes) < 3:
+            option_num = len(fixes) + 1
+            self.logger.warning(f"Using template for option {option_num}")
+            template_fix = self._create_template_fix(vuln_data)
+            template_fix.option = option_num
+            template_fix.approach = ["conservative", "balanced", "aggressive"][option_num - 1]
+            fixes.append(template_fix)
+        
+        self.logger.info(f"Generated {len(fixes)} distinct fix options")
+        return fixes[:3]  # Return exactly 3 options
     
     def _parse_markdown_response(self, response: str, file_path: str, vuln_code: str, vuln_type: str) -> Optional[Dict[str, Any]]:
         """

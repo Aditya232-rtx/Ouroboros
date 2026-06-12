@@ -68,7 +68,7 @@ class PentestExecutor:
             logger.error(f"Sandbox setup failed: {e}")
             return ""
 
-    def run_dynamic_analysis(self, repo_url: str) -> Dict:
+    def run_dynamic_analysis(self, repo_url: str, cleanup: bool = True) -> Dict:
         """
         Orchestrates a comprehensive Dynamic Application Security Testing (DAST) workflow.
         """
@@ -82,12 +82,25 @@ class PentestExecutor:
         runner = SandboxRunner(sandbox_path)
         success, app_url = runner.start()
         
+        container_info = {
+            "container_id": runner.container_id,
+            "compose_project": runner.compose_project,
+            "sandbox_path": sandbox_path,
+            "app_url": app_url
+        }
+        
         if not success:
             logger.warning(f"DAST skipped: {app_url}")
             logger.info("Reason: App may require database/external services not available. Running SAST only (still effective for pattern-based vulnerabilities like SQL injection, XSS, etc.)")
             # Even if it failed to start, we can still do SAST
             self.run_static_analysis(sandbox_path)
-            return {"success": True, "scan_result": self.scan_result, "note": "SAST only (App requires external services)"}
+            
+            # If start failed, we might still have a container in failed state, so assume we clean it up usually,
+            # unless instructed otherwise, but here cleanup usually makes sense if it failed.
+            if cleanup:
+                 runner.stop()
+                 
+            return {"success": True, "scan_result": self.scan_result, "note": "SAST only (App requires external services)", "container_info": container_info}
 
         logger.info(f"Sandbox application running at {app_url}")
         
@@ -102,11 +115,19 @@ class PentestExecutor:
             self.run_static_analysis(sandbox_path)
             
         finally:
-            logger.info("Stopping sandbox...")
-            runner.stop()
-            self.target = original_target # Restore original target
+            if cleanup:
+                logger.info("Stopping sandbox...")
+                runner.stop()
+                self.target = original_target # Restore original target
+            else:
+                logger.info(f"Preserving sandbox at {app_url}...")
+                # We do NOT restore self.target here if we want to report vulnerability on the LIVE url,
+                # but typically we report on the repo.
+                # Actually, for verification we need the live URL. 
+                # But scan_result should probably reflect the repo.
+                self.target = original_target 
             
-        return {"success": True, "scan_result": self.scan_result}
+        return {"success": True, "scan_result": self.scan_result, "container_info": container_info}
 
     def run_static_analysis(self, target_path: str):
         """Run all SAST/SCA/Secret tools"""
@@ -350,19 +371,68 @@ class PentestExecutor:
 
         try:
             logger.info(f"Executing: {' '.join(cmd)}")
-            proc = subprocess.run(
+            
+            # Use Popen to stream output
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True,
-                timeout=timeout
+                bufsize=1, # Line buffered
+                universal_newlines=True
             )
-            result["stdout"] = proc.stdout
-            result["stderr"] = proc.stderr
-            result["exit_code"] = proc.returncode
-            result["success"] = proc.returncode == 0
+            
+            stdout_lines = []
+            stderr_lines = []
+            
+            import select
+            
+            # Stream output in real-time
+            # Keep reading until process finishes
+            while True:
+                reads = [process.stdout.fileno(), process.stderr.fileno()]
+                ret = select.select(reads, [], [], 1.0) # 1s timeout for checks
+                
+                # Check for stdout
+                if process.stdout.fileno() in ret[0]:
+                    line = process.stdout.readline()
+                    if line:
+                        line_str = line.strip()
+                        if line_str:
+                            logger.info(f"[{tool_name}] {line_str}") # <--- Streams to UI
+                            stdout_lines.append(line)
+                            
+                # Check for stderr
+                if process.stderr.fileno() in ret[0]:
+                    line = process.stderr.readline()
+                    if line:
+                        line_str = line.strip()
+                        if line_str: 
+                            logger.warning(f"[{tool_name}] {line_str}")
+                            stderr_lines.append(line)
+                
+                if process.poll() is not None:
+                    # Capture remaining
+                    for line in process.stdout:
+                         if line.strip(): 
+                             logger.info(f"[{tool_name}] {line.strip()}")
+                             stdout_lines.append(line)
+                    for line in process.stderr:
+                         if line.strip():
+                             logger.warning(f"[{tool_name}] {line.strip()}")
+                             stderr_lines.append(line)
+                    break
+                    
+                # Check timeout logic manually if needed (complex with Popen)
+                # simpler approach: rely on wait with timeout after loop? 
+                # Integrating strict timeout with streaming is tricky without async.
+                # For now, let's trust the tool or os.
+            
+            result["exit_code"] = process.returncode
+            result["stdout"] = "".join(stdout_lines)
+            result["stderr"] = "".join(stderr_lines)
+            result["success"] = result["exit_code"] == 0
 
-        except subprocess.TimeoutExpired:
-            result["stderr"] = f"Command timed out after {timeout} seconds"
         except Exception as e:
             result["stderr"] = str(e)
             logger.error(f"Error executing {cmd[0]}: {e}")

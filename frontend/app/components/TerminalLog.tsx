@@ -60,8 +60,8 @@ export default function TerminalLog({ logs, classname, title = "System Log" }: T
                 {logs.length === 0 ? (
                     <div className="text-slate-600 italic">Waiting for log stream...</div>
                 ) : (
-                    logs.map((log) => (
-                        <div key={log.id} className="flex space-x-2 group hover:bg-white/5 p-0.5 rounded px-2 -mx-2 transition-colors">
+                    logs.map((log, index) => (
+                        <div key={`${index}-${log.id}`} className="flex space-x-2 group hover:bg-white/5 p-0.5 rounded px-2 -mx-2 transition-colors">
                             <span className="text-slate-500 shrink-0 w-[85px]">{log.timestamp}</span>
                             <span className={cn("font-bold shrink-0 w-[70px]", getLevelColor(log.level))}>
                                 [{log.level.toUpperCase()}]

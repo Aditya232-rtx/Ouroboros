@@ -39,7 +39,7 @@ async def health_check() -> HealthResponse:
     try:
         from config.settings import settings
         if settings.redis_url:
-            import aioredis
+            from redis import asyncio as aioredis
             redis = aioredis.from_url(settings.redis_url)
             await redis.ping()
             components["redis"] = "healthy"

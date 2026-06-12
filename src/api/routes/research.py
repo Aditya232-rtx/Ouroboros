@@ -12,6 +12,36 @@ from datetime import datetime
 router = APIRouter(prefix="/api/research", tags=["research"])
 
 
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from typing import List, Optional
+from datetime import datetime
+
+from src.agents import ResearchAgent
+
+class ResearchStartRequest(BaseModel):
+    tech_stack: List[str]
+    freshness: str = "30d"
+
+@router.post("/start")
+async def start_research_scan(
+    request: ResearchStartRequest, 
+    background_tasks: BackgroundTasks
+):
+    """
+    Trigger an autonomous Research Agent scan in the background.
+    """
+    agent = ResearchAgent()
+    
+    # Run in background
+    background_tasks.add_task(agent.execute, request.dict())
+    
+    return {
+        "status": "started",
+        "message": f"Research started for {len(request.tech_stack)} technologies",
+        "timestamp": datetime.now().isoformat()
+    }
+
 @router.get("/vulnerabilities")
 async def get_vulnerabilities(
     severity: Optional[str] = None,

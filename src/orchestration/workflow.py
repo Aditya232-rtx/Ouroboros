@@ -65,16 +65,27 @@ class OuroborosWorkflow:
         workflow.add_node("red_verify", red_verify_node)
         workflow.add_node("check_verification", self._check_verification_node)  # Keep inline for now as it's simple logic
         workflow.add_node("doc_final", doc_final_node)
-        workflow.add_node("create_pr", create_pr_node)
+        workflow.add_node("pr_creation", create_pr_node)
         workflow.add_node("audit", audit_node)
         
-        # Add edges
+        # Add edges with detailed logging
         workflow.set_entry_point("red_scan")
+        logger.info("🔗 Workflow edge: START → red_scan")
+        
         workflow.add_edge("red_scan", "doc_initial")
+        logger.info("🔗 Workflow edge: red_scan → doc_initial")
+        
         workflow.add_edge("doc_initial", "governance")
+        logger.info("🔗 Workflow edge: doc_initial → governance")
+        
         workflow.add_edge("governance", "blue_fix")
+        logger.info("🔗 Workflow edge: governance → blue_fix")
+        
         workflow.add_edge("blue_fix", "red_verify")
+        logger.info("🔗 Workflow edge: blue_fix → red_verify")
+        
         workflow.add_edge("red_verify", "check_verification")
+        logger.info("🔗 Workflow edge: red_verify → check_verification")
         
         # Conditional edge: retry fixes or proceed
         workflow.add_conditional_edges(
@@ -82,300 +93,70 @@ class OuroborosWorkflow:
             self._route_after_verification,
             {
                 "retry": "blue_fix",  # Loop back
-                "proceed": "doc_final"  # Continue
+                "proceed": "audit"    # User Req: Audit runs before PR/Doc
             }
         )
+        logger.info("🔗 Workflow conditional edge: check_verification → [retry: blue_fix | proceed: audit]")
         
         workflow.add_conditional_edges(
-            "doc_final",
-            self._route_after_doc_final,
+            "audit",
+            self._route_to_pr,
             {
-                "create_pr": "create_pr",
-                "skip_pr": "audit"
+                "create_pr": "pr_creation",
+                "skip_pr": "doc_final"
             }
         )
-        workflow.add_edge("create_pr", "audit")
-        workflow.add_edge("audit", END)
+        logger.info("🔗 Workflow conditional edge: audit → [create_pr: pr_creation | skip_pr: doc_final]")
         
+        workflow.add_edge("pr_creation", "doc_final")
+        logger.info("🔗 Workflow edge: pr_creation → doc_final")
+        
+        workflow.add_edge("doc_final", END)
+        logger.info("🔗 Workflow edge: doc_final → END")
+        
+        logger.info("✅ Workflow graph compilation complete")
         return workflow.compile()
     
     # ===== WORKFLOW NODES =====
-    
-    async def _red_scan_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 1: RED Agent vulnerability discovery"""
-        logger.info(f"Starting RED scan for {state['repo_url']}")
-        
-        result = await self.red_agent.execute({
-            "repo_url": state["repo_url"],
-            "commit_sha": state.get("commit_sha", "HEAD"),
-            "branch": state.get("branch", "main"),
-            "scan_profile": state.get("scan_profile", "standard")
-        })
-        
-        state["vulnerabilities"] = result["vulnerabilities"]
-        state["scan_complete"] = result["scan_complete"]
-        state["scan_statistics"] = result["statistics"]
-        state["current_phase"] = "scan_complete"
-        
-        return state
-    
-    async def _doc_initial_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 2: DOCUMENTATION Agent creates initial report"""
-        logger.info("Creating initial documentation")
-        
-        result = await self.doc_agent.execute({
-            "vulnerabilities": state["vulnerabilities"],
-            "metadata": {
-                "repo_url": state["repo_url"],
-                "scan_id": state["scan_id"]
-            },
-            "report_type": "initial"
-        })
-        
-        state["initial_report_url"] = result.get("doc_url", "")
-        state["initial_report_id"] = result.get("doc_id", "")
-        state["current_phase"] = "documentation_initial"
-        
-        return state
-    
-    async def _governance_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 3: GOVERNANCE Agent prioritizes vulnerabilities"""
-        logger.info("Applying governance policies")
-        
-        result = await self.governance_agent.execute({
-            "vulnerabilities": state["vulnerabilities"],
-            "environment": "production"  # TODO: from state
-        })
-        
-        state["prioritized_queue"] = result["prioritized_queue"]
-        state["govern ance_decisions"] = result["decisions"]
-        state["risk_scores"] = result["risk_scores"]
-        state["current_phase"] = "governance_complete"
-        
-        return state
-    
-    async def _blue_fix_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 4: BLUE Agent generates fixes"""
-        logger.info(f"Generating fixes (attempt {state.get('retry_count', 0) + 1})")
-        
-        # Process prioritized vulnerabilities
-        fixes = []
-        for vuln in state["prioritized_queue"]:
-            result = await self.blue_agent.execute({
-                "vulnerability": vuln
-            })
-            fixes.append(result)
-        
-        state["fixes"] = fixes
-        state["current_phase"] = "fixes_generated"
-        
-        return state
-    
-    async def _red_verify_node(self, state: OuroborosState) -> OuroborosState:
-        """
-        Node 5: RED Agent verifies fixes using PoC exploits.
-        
-        Per 03_CRITICAL_DO_NOT: Must run in Docker sandbox
-        Per VERIFICATION_LOOP: Max 10 retries
-        """
-        logger.info("Verifying fixes with RED Agent re-attack...")
-        
-        from src.verification.verification_engine import VerificationEngine
-        from src.tools.docker_sandbox import docker_sandbox
-        
-        # Initialize verification engine
-        engine = VerificationEngine()
-        
-        verification_results = []
-        for fix in state["fixes"]:
-            # Get the original vulnerability
-            vuln = next(
-                (v for v in state["vulnerabilities"] if v.get("id") == fix.get("vulnerability_id")),
-                None
-            )
-            
-            if not vuln:
-                logger.error(f"Vulnerability not found for fix {fix.get('fix_id')}")
-                verification_results.append({
-                    "fix_id": fix.get("fix_id"),
-                    "verified": False,
-                    "error": "Original vulnerability not found"
-                })
-                continue
-            
-            # Verify fix
-            try:
-                result = await engine.verify_fix(
-                    fix_code=fix.get("code_diff", {}).get("after", ""),
-                    original_vulnerability=vuln,
-                    sandbox=docker_sandbox
-                )
-                
-                verification_results.append({
-                    "fix_id": fix.get("fix_id"),
-                    "vulnerability_id": vuln.get("id"),
-                    "verified": result.get("verified", False),
-                    "poc_failed": result.get("poc_failed", False),  # Good: exploit failed
-                    "details": result
-                })
-                
-                logger.info(
-                    f"Fix {fix.get('fix_id')}: "
-                    f"{'✅ VERIFIED' if result.get('verified') else '❌ FAILED'}"
-                )
-                
-            except Exception as e:
-                logger.error(f"Verification failed for {fix.get('fix_id')}: {e}")
-                verification_results.append({
-                    "fix_id": fix.get("fix_id"),
-                    "verified": False,
-                    "error": str(e)
-                })
-        
-        state["verification_results"] = verification_results
-        state["current_phase"] = "verification_complete"
-        
-        return state
+    # Note: Most nodes are imported from src/orchestration/nodes/
+    # Only _check_verification_node is defined inline here
     
     async def _check_verification_node(self, state: OuroborosState) -> OuroborosState:
         """Node 6: Check if all fixes verified"""
         verified_count = sum(
-            1 for r in state["verification_results"] 
+            1 for r in state.get("verification_results", []) 
             if r.get("verified", False)
         )
-        total_count = len(state["verification_results"])
+        total_count = len(state.get("verification_results", []))
         
-        state["all_verified"] = (verified_count == total_count)
-        state["retry_count"] = state.get("retry_count", 0) + 1
+        all_verified = (verified_count == total_count) and total_count > 0
+        state["all_verified"] = all_verified
         
         logger.info(f"Verification: {verified_count}/{total_count} fixes verified")
         
-        return state
-    
-    async def _doc_final_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 7: DOCUMENTATION Agent creates final report"""
-        logger.info("Creating final documentation")
-        
-        result = await self.doc_agent.execute({
-            "vulnerabilities": state["vulnerabilities"],
-            "fixes": state["fixes"],
-            "verification_results": state["verification_results"],
-            "report_type": "final"
-        })
-        
-        state["final_report_url"] = result.get("doc_url", "")
-        state["final_report_id"] = result.get("doc_id", "")
-        state["current_phase"] = "documentation_final"
-        
-        return state
-    
-    async def _create_pr_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 8: Create GitHub PR using real GitHub API."""
-        logger.info("Creating GitHub PR")
-        
-        try:
-            from src.integrations.github_api import github_client
+        # Incremental Retry Logic:
+        # If not fully verified, we consume one retry attempt here.
+        if not all_verified:
+            current_retries = state.get("retry_count", 0)
+            new_retries = current_retries + 1
+            state["retry_count"] = new_retries
             
-            # Extract repo info from state
-            repo_url = state.get("repo_url", "")
-            # Parse owner/repo from URL
-            if "github.com" in repo_url:
-                parts = repo_url.rstrip("/").split("/")
-                repo_full_name = f"{parts[-2]}/{parts[-1]}"
+            if new_retries > 3: # Hardcoded MAX_RETRIES for now to match router
+                 state["workflow_aborted"] = True
+                 state["abort_reason"] = f"Max verification retries (3) exceeded"
+                 logger.error("   ❌ Max retries reached - flagging for abort in router")
             else:
-                repo_full_name = repo_url
-            
-            # Create branch name
-            branch_name = f"ouroboros/security-fix-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-            
-            # Prepare PR body with vulnerability summary
-            vulns = state.get("vulnerabilities", [])
-            fixes = state.get("fixes", [])
-            
-            pr_body = f"""## Ouroboros AI Security Fix
-
-### Vulnerabilities Fixed: {len(fixes)}
-
-| Vulnerability | Severity | Status |
-|---------------|----------|--------|
-"""
-            for fix in fixes[:10]:  # Limit to 10 in PR description
-                vuln_id = fix.get("vulnerability_id", "N/A")
-                severity = fix.get("severity", "N/A")
-                status = "✅ Fixed" if fix.get("verified") else "⚠️ Needs Review"
-                pr_body += f"| {vuln_id} | {severity} | {status} |\n"
-            
-            pr_body += f"""
-### Automated Security Report
-- Full Report: {state.get('final_report_url', 'N/A')}
-- Initial Scan: {state.get('report_url', 'N/A')}
-
-### Compliance
-This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
-
-**⚠️ REQUIRES 2x HUMAN REVIEW BEFORE MERGE (Per V1 Policy)**
-"""
-            
-            # Create the PR
-            pr_result = github_client.create_pull_request(
-                repo_full_name=repo_full_name,
-                title=f"[Ouroboros] Security Fix: {len(fixes)} vulnerabilities",
-                body=pr_body,
-                head_branch=branch_name,
-                base_branch=state.get("branch", "main"),
-                reviewers=state.get("reviewers", [])
-            )
-            
-            state["pr_url"] = pr_result.get("pr_url", "")
-            state["pr_number"] = pr_result.get("pr_number", 0)
-            state["current_phase"] = "pr_created"
-            
-            logger.info(f"Created PR: {state['pr_url']}")
-            
-        except Exception as e:
-            logger.error(f"GitHub PR creation failed: {e}")
-            state["pr_url"] = ""
-            state["pr_number"] = 0
-            state["pr_error"] = str(e)
-            state["current_phase"] = "pr_failed"
-        
-        return state
-    
-    async def _audit_node(self, state: OuroborosState) -> OuroborosState:
-        """Node 9: AUDIT Agent logs everything"""
-        logger.info("Logging audit trail")
-        
-        result = await self.audit_agent.execute({
-            "workflow_state": state,
-            "event_type": "workflow_complete"
-        })
-        
-        state["audit_entries"] = result.get("audit_ids", [])
-        state["current_phase"] = "complete"
-        state["workflow_end_time"] = datetime.now().isoformat()
+                 logger.info(f"   ⚠️  Verification failed (Attempt {new_retries})")
         
         return state
     
     # ===== CONDITIONAL ROUTING =====
     
     def _route_after_verification(self, state: OuroborosState) -> str:
-        """
-        Route after verification: retry or proceed.
-        Max 10 retries (per 03_CRITICAL_DO_NOT_FILE).
-        """
-        MAX_RETRIES = 10
-        
-        if state["all_verified"]:
-            return "proceed"
-        
-        if state.get("retry_count", 0) >= MAX_RETRIES:
-            logger.warning(f"Max retries ({MAX_RETRIES}) reached. Proceeding with partial fixes.")
-            return "proceed"
-        
-        logger.info(f"Retrying fixes (attempt {state.get('retry_count', 0) + 1})")
-        return "retry"
+        from src.orchestration.edges.verification_router import route_after_verification
+        return route_after_verification(state)
     
-    def _route_after_doc_final(self, state: OuroborosState) -> str:
+    def _route_to_pr(self, state: OuroborosState) -> str:
         """Route to PR creation or skip to audit."""
         if state.get("create_pr", True):
             return "create_pr"
@@ -396,26 +177,51 @@ This PR addresses security vulnerabilities per SOC2 CC6.1, ISO27001 A.14.2.1
         # Initialize state
         initial_state: OuroborosState = {
             "repo_url": input_data["repo_url"],
-            "scan_id": f"SCAN-{datetime.now().strftime('%Y%m%d-%H%M%S')}",
+            "scan_id": input_data.get("scan_id", f"SCAN-{datetime.now().strftime('%Y%m%d-%H%M%S')}"), # <--- USE PASSED ID
             "user_id": input_data.get("user_id", "anonymous"),
             "scan_profile": input_data.get("scan_profile", "standard"),
             "commit_sha": input_data.get("commit_sha", "HEAD"),
             "branch": input_data.get("branch", "main"),
             "create_pr": input_data.get("create_pr", True),
+            "working_dir": "",  # Will be set by RED agent
             "workflow_start_time": datetime.now().isoformat(),
+            "current_phase": "initializing",
             "retry_count": 0,
+            "workflow_aborted": False,  # NEW: Abort tracking
+            "abort_reason": None,
             "vulnerabilities": [],
+            "scan_complete": False,
+            "scan_statistics": {},
+            "initial_report_url": None,
+            "initial_report_id": None,
+            "final_report_url": None,
+            "final_report_id": None,
+            "prioritized_queue": [],
+            "governance_decisions": {},
+            "risk_scores": {},
             "fixes": [],
             "verification_results": [],
+            "all_verified": False,
+            "pr_url": None,
+            "pr_number": None,
+            "pr_error": None,
+            "audit_entries": [],
+            "workflow_end_time": None,
             "errors": []
         }
         
-        logger.info(f"Starting workflow for {input_data['repo_url']}")
+        logger.info(f"🚀 Starting Ouroboros workflow for {input_data['repo_url']}")
+        logger.info(f"   Scan ID: {initial_state['scan_id']}")
+        logger.info(f"   Profile: {initial_state['scan_profile']}")
         
         # Execute workflow
         final_state = await self.workflow.ainvoke(initial_state)
         
-        logger.info(f"Workflow complete: {final_state.get('scan_id')}")
+        # Check if workflow was aborted
+        if final_state.get("workflow_aborted"):
+            logger.warning(f"⚠️  Workflow aborted: {final_state.get('abort_reason')}")
+        
+        logger.info(f"✅ Workflow complete: {final_state.get('scan_id')}")
         
         return final_state
 

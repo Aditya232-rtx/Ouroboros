@@ -37,6 +37,7 @@ async def get_status(scan_id: str) -> ScanStatusResponse:
     
     return ScanStatusResponse(
         scan_id=scan_id,
+        repo_url=scan_data.get("repo_url"), # <--- Added
         status=scan_data["status"],
         progress_percent=scan_data.get("progress_percent", 0),
         current_phase=scan_data.get("current_phase", "unknown"),
@@ -64,7 +65,7 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
     
     # Extract vulnerabilities from result
     vulnerabilities = []
-    result = scan_data.get("result", {})
+    result = scan_data.get("result") or {}
     for vuln in result.get("vulnerabilities", []):
         vulnerabilities.append(VulnerabilitySummary(
             id=vuln.get("id", "unknown"),
@@ -88,6 +89,7 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
     
     return ScanDetailResponse(
         scan_id=scan_id,
+        repo_url=scan_data.get("repo_url"), # <--- Added
         status=scan_data["status"],
         progress_percent=scan_data.get("progress_percent", 0),
         current_phase=scan_data.get("current_phase", "unknown"),
@@ -105,13 +107,16 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
 
 @router.get(
     "/{scan_id}/logs",
-    response_model=List[LogEntry],
     summary="Get scan logs",
 )
-async def get_scan_logs(scan_id: str) -> List[LogEntry]:
+async def get_scan_logs(scan_id: str):
     """Get logs for a specific scan."""
     scan_data = get_scan_data(scan_id)
     if not scan_data:
         raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
-        
-    return scan_data.get("logs", [])
+    
+    logs = scan_data.get("logs") or []
+    logger.info(f"Returning {len(logs)} log entries for scan {scan_id}")
+    
+    # Return logs wrapped in expected format for frontend
+    return {"logs": logs}

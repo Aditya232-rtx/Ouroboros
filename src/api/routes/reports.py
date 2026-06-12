@@ -1,5 +1,5 @@
 # src/api/routes/reports.py
-"""Reports endpoint for generating scan reports."""
+"""Reports endpoint for generating and downloading scan reports."""
 
 import os
 import json
@@ -7,16 +7,16 @@ import logging
 import tempfile
 from datetime import datetime, timedelta
 from uuid import uuid4
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from io import BytesIO
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse, HTMLResponse, StreamingResponse
 
 from src.api.schemas import (
     ReportRequest,
     ReportResponse,
-    ReportExportResponse,
     ErrorResponse,
 )
 from src.api.routes.scan import get_scan_data
-from src.integrations.google_drive import drive_client
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["reports"])
@@ -56,6 +56,8 @@ async def create_report(request: ReportRequest) -> ReportResponse:
         report_content = _generate_json_report(result, request)
     elif request.format == "html":
         report_content = _generate_html_report(result, request)
+    elif request.format == "pdf":
+        report_content = _generate_pdf_report(result, request)
     else:
         report_content = _generate_json_report(result, request)
     
@@ -96,56 +98,143 @@ async def download_report(report_id: str):
     if datetime.utcnow() > report["expires_at"]:
         raise HTTPException(status_code=410, detail="Report has expired")
     
-    from fastapi.responses import JSONResponse, HTMLResponse
-    
     if report["format"] == "json":
-        return JSONResponse(content=report["content"])
+        return JSONResponse(
+            content=report["content"],
+            headers={
+                "Content-Disposition": f'attachment; filename="report_{report_id}.json"'
+            }
+        )
     elif report["format"] == "html":
-        return HTMLResponse(content=report["content"])
+        return HTMLResponse(
+            content=report["content"],
+            headers={
+                "Content-Disposition": f'attachment; filename="report_{report_id}.html"'
+            }
+        )
+    elif report["format"] == "pdf":
+        # Return PDF as streaming binary
+        return StreamingResponse(
+            BytesIO(report["content"]),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="report_{report_id}.pdf"'
+            }
+        )
     else:
         return JSONResponse(content=report["content"])
 
 
-@router.post(
-    "/{report_id}/export/drive",
-    response_model=ReportExportResponse,
-    summary="Export report to Google Drive",
-    description="Uploads the report to the configured Google Drive folder.",
+@router.get(
+    "/{report_id}/download/pdf",
+    summary="Download report as PDF",
+    description="Download a report in PDF format.",
 )
-async def export_report_to_drive(report_id: str):
-    """Export a generated report to Google Drive."""
+async def download_report_pdf(report_id: str):
+    """Download a report as PDF."""
     if report_id not in _reports:
         raise HTTPException(status_code=404, detail=f"Report {report_id} not found")
     
     report = _reports[report_id]
     
-    # Create valid temporary file
-    suffix = ".json" if report["format"] == "json" else ".html"
-    mime_type = "application/json" if report["format"] == "json" else "text/html"
+    if datetime.utcnow() > report["expires_at"]:
+        raise HTTPException(status_code=410, detail="Report has expired")
     
-    with tempfile.NamedTemporaryFile(mode="w", suffix=suffix, delete=False) as tmp:
-        if report["format"] == "json":
-            json.dump(report["content"], tmp, indent=2)
-        else:
-            tmp.write(report["content"])
-        tmp_path = tmp.name
+    # Convert to PDF if needed
+    if report["format"] == "pdf":
+        pdf_content = report["content"]
+    else:
+        # Generate PDF from existing content
+        result = report.get("content", {})
+        pdf_content = _generate_pdf_from_data(result, report["scan_id"])
     
+    return StreamingResponse(
+        BytesIO(pdf_content),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="ouroboros_report_{report_id}.pdf"'
+        }
+    )
+
+
+@router.get(
+    "/scan/{scan_id}/pdf",
+    summary="Generate and download PDF report for scan",
+    description="Generate a PDF report for a scan and download it immediately.",
+)
+async def generate_and_download_pdf(scan_id: str):
+    """Generate and download a PDF report for a scan."""
+    scan_data = get_scan_data(scan_id)
+    
+    if not scan_data:
+        raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
+    
+    result = scan_data.get("result", {})
+    pdf_content = _generate_pdf_from_data(result, scan_id)
+    
+    timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    filename = f"ouroboros_security_report_{scan_id}_{timestamp}.pdf"
+    
+    return StreamingResponse(
+        BytesIO(pdf_content),
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"'
+        }
+    )
+
+@router.get(
+    "/scan/{scan_id}/initial-report",
+    summary="Download initial PDF report",
+    description="Download the initial PDF report generated by the Documentation Agent.",
+)
+async def download_initial_report(scan_id: str):
+    """Download the initial PDF report for a scan."""
+    scan_data = get_scan_data(scan_id)
+    
+    if not scan_data:
+        raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
+    
+    # Get path from metadata
+    # The scan_data returned by get_scan_data flattens some metadata but let's check Result/Metadata
+    # In scan.py: get_scan_data returns dict. "result" contains Result.
+    # But initial_report_url was saved to State, which might be in scan_metadata.
+    
+    # We need to access the raw scan_metadata from DB or via get_scan_data logic
+    # In scan.py get_scan_data: meta = scan.scan_metadata or {}
+    # It returns "current_phase", "result", etc.
+    # It does NOT explicitly return initial_report_url in the top level dict.
+    
+    # Let's fix get_scan_data in scan.py OR access DB here.
+    # Accessing DB here is safer for robust metadata access.
+    
+    from src.database.session import SessionLocal
+    from src.database.models import Scan
+    
+    db = SessionLocal()
     try:
-        # Upload to Drive
-        uploaded_file = drive_client.upload_file(tmp_path, mime_type=mime_type)
+        scan = db.query(Scan).filter(Scan.scan_id == scan_id).first()
+        if not scan:
+             raise HTTPException(status_code=404, detail=f"Scan {scan_id} not found")
         
-        if not uploaded_file:
-            raise HTTPException(status_code=500, detail="Failed to upload report to Google Drive")
+        meta = scan.scan_metadata or {}
+        pdf_path = meta.get("initial_report_url")
+        
+        if not pdf_path or not os.path.exists(pdf_path):
+            # Fallback: Try to find in outputs/reports
+            # Filename pattern: ouroboros-initial-{repo}-{timestamp}.pdf
+            # This is hard to guess.
+            raise HTTPException(status_code=404, detail="Initial report not found")
             
-        return ReportExportResponse(
-            report_id=report_id,
-            file_id=uploaded_file.get("id"),
-            web_view_link=uploaded_file.get("webViewLink")
+        return StreamingResponse(
+            open(pdf_path, "rb"),
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'attachment; filename="ouroboros_initial_report_{scan_id}.pdf"'
+            }
         )
     finally:
-        # Cleanup temp file
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        db.close()
 
 
 def _generate_json_report(result: dict, request: ReportRequest) -> dict:
@@ -219,6 +308,132 @@ def _generate_html_report(result: dict, request: ReportRequest) -> str:
     </html>
     """
     return html
+
+
+def _generate_pdf_report(result: dict, request: ReportRequest) -> bytes:
+    """Generate PDF format report using reportlab."""
+    return _generate_pdf_from_data(result, request.scan_id)
+
+
+def _generate_pdf_from_data(result: dict, scan_id: str) -> bytes:
+    """Generate a PDF report from scan data."""
+    try:
+        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        from reportlab.lib.units import inch
+        from reportlab.lib.colors import HexColor
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+        from reportlab.lib import colors
+    except ImportError:
+        # Fallback: return a simple text-based PDF placeholder
+        logger.warning("reportlab not installed, generating basic PDF")
+        return _generate_simple_pdf(result, scan_id)
+    
+    buffer = BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=0.5*inch, bottomMargin=0.5*inch)
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        textColor=HexColor('#1e293b'),
+        spaceAfter=20
+    )
+    heading_style = ParagraphStyle(
+        'CustomHeading',
+        parent=styles['Heading2'],
+        fontSize=16,
+        textColor=HexColor('#334155'),
+        spaceBefore=15,
+        spaceAfter=10
+    )
+    
+    elements = []
+    
+    # Title
+    elements.append(Paragraph("Ouroboros Security Report", title_style))
+    elements.append(Spacer(1, 0.2*inch))
+    
+    # Summary
+    elements.append(Paragraph(f"<b>Scan ID:</b> {scan_id}", styles['Normal']))
+    elements.append(Paragraph(f"<b>Generated:</b> {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}", styles['Normal']))
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Vulnerability count
+    vulns = result.get("vulnerabilities", [])
+    fixes = result.get("fixes", [])
+    
+    elements.append(Paragraph("Executive Summary", heading_style))
+    
+    summary_data = [
+        ["Metric", "Value"],
+        ["Total Vulnerabilities", str(len(vulns))],
+        ["Fixes Applied", str(len(fixes))],
+        ["Critical", str(sum(1 for v in vulns if v.get('severity') == 'critical'))],
+        ["High", str(sum(1 for v in vulns if v.get('severity') == 'high'))],
+        ["Medium", str(sum(1 for v in vulns if v.get('severity') == 'medium'))],
+        ["Low", str(sum(1 for v in vulns if v.get('severity') == 'low'))],
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), HexColor('#1e293b')),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 10),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), HexColor('#f8fafc')),
+        ('GRID', (0, 0), (-1, -1), 1, HexColor('#e2e8f0')),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 0.3*inch))
+    
+    # Vulnerabilities detail
+    if vulns:
+        elements.append(Paragraph("Vulnerabilities Detected", heading_style))
+        for i, vuln in enumerate(vulns[:20], 1):  # Limit to 20 for PDF size
+            severity = vuln.get('severity', 'medium').upper()
+            vuln_type = vuln.get('type', 'Unknown')
+            location = vuln.get('location', {})
+            file_path = location.get('file', 'N/A') if isinstance(location, dict) else 'N/A'
+            line = location.get('line', 'N/A') if isinstance(location, dict) else 'N/A'
+            
+            elements.append(Paragraph(
+                f"<b>{i}. [{severity}] {vuln_type}</b><br/>"
+                f"File: {file_path} (Line {line})<br/>"
+                f"{vuln.get('description', '')[:200]}",
+                styles['Normal']
+            ))
+            elements.append(Spacer(1, 0.1*inch))
+    
+    # Build PDF
+    doc.build(elements)
+    return buffer.getvalue()
+
+
+def _generate_simple_pdf(result: dict, scan_id: str) -> bytes:
+    """Generate a simple PDF without reportlab (fallback)."""
+    # Create a minimal PDF structure
+    vulns = result.get("vulnerabilities", [])
+    content = f"""Ouroboros Security Report
+Scan ID: {scan_id}
+Generated: {datetime.utcnow().isoformat()}
+
+Vulnerabilities Found: {len(vulns)}
+Fixes Applied: {len(result.get('fixes', []))}
+
+---
+"""
+    for i, vuln in enumerate(vulns[:10], 1):
+        content += f"\n{i}. [{vuln.get('severity', 'medium').upper()}] {vuln.get('type', 'Unknown')}\n"
+    
+    # Minimal PDF (not a real PDF, just text with PDF header for demo)
+    # In production, install reportlab
+    pdf_header = b"%PDF-1.4\n"
+    pdf_content = content.encode('utf-8')
+    return pdf_header + pdf_content
 
 
 def _count_by_severity(vulnerabilities: list) -> dict:

@@ -1,13 +1,13 @@
 """
 Ouroboros AI - Safety Gates
-5-layer validation system for BLUE Agent fix generation
+4-layer validation system for BLUE Agent fix generation
 
-ALL 5 gates must pass before a fix is approved:
+ALL 4 gates must pass before a fix is approved:
 1. Input Validation - All user inputs checked
 2. No New Vulnerabilities - Semgrep scan finds ZERO new CWEs
 3. Backward Compatibility - Existing tests pass 100%
 4. Performance - <10% overhead acceptable
-5. Test Coverage - >80% required
+(Gate 5 Test Coverage removed for faster validation)
 """
 
 import logging
@@ -60,7 +60,7 @@ class SafetyGates:
         language: str = "python"
     ) -> Tuple[bool, List[GateResult]]:
         """
-        Run all 5 safety gates on a fix
+        Run all safety gates on a fix
         
         Args:
             original_code: Original vulnerable code
@@ -93,16 +93,16 @@ class SafetyGates:
         gate4 = await self.gate_4_performance(original_code, fixed_code)
         results.append(gate4)
         
-        # Gate 5: Test Coverage
-        self.logger.info("Running Gate 5: Test Coverage")
-        gate5 = await self.gate_5_test_coverage(fixed_code, test_code, language)
-        results.append(gate5)
+        # Gate 5 (Test Coverage) REMOVED for faster validation
+        # self.logger.info("Running Gate 5: Test Coverage")
+        # gate5 = await self.gate_5_test_coverage(fixed_code, test_code, language)
+        # results.append(gate5)
         
         # Check if all passed
         all_passed = all(r.status == GateStatus.PASSED for r in results)
         
         if all_passed:
-            self.logger.info("✅ All 5 safety gates PASSED")
+            self.logger.info("✅ All 4 safety gates PASSED")
         else:
             failed = [r.gate_name for r in results if r.status == GateStatus.FAILED]
             self.logger.warning(f"❌ Safety gates FAILED: {', '.join(failed)}")

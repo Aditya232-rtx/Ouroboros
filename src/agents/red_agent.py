@@ -7,7 +7,7 @@ import logging
 import json
 import asyncio
 import re
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 from datetime import datetime
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -86,8 +86,9 @@ class REDAgent(BaseAgent):
     """
     
     def __init__(self):
-        """Initialize RED Agent with Qwen Coder model"""
-        model = get_model("red")
+        """Initialize RED Agent with Qwen Coder model (CREATIVE MODE)"""
+        # Request creative configuration for attack thinking
+        model = get_model("red", temperature=0.9, top_p=0.95, repeat_penalty=1.1)
         super().__init__(model=model, agent_id="RED")
         
         # Initialize Context Memory (NeuroSploit Integration)
@@ -155,7 +156,7 @@ class REDAgent(BaseAgent):
             self.context_builder.set_target(validated_input.repo_url)
             
             # Run the tools
-            tool_findings, sandbox_path = await self._run_security_tools(validated_input.model_dump())
+            tool_findings, sandbox_path, container_info = await self._run_security_tools(validated_input.model_dump())
 
             # Step 1.5: Run Active LLM SAST Scan (Code Review)
             # Only if we have a sandbox (repository)
@@ -335,7 +336,8 @@ class REDAgent(BaseAgent):
                 "statistics": statistics,
                 "summary": statistics, # For script compatibility
                 "scan_complete": True,
-                "sandbox_path": sandbox_path  # Pass to Blue Agent for file reading
+                "sandbox_path": sandbox_path,  # Pass to Blue Agent for file reading
+                "sandbox_info": container_info
             }
             
         except Exception as e:
@@ -344,7 +346,8 @@ class REDAgent(BaseAgent):
                 "scan_id": scan_id,
                 "vulnerabilities": [],
                 "statistics": {"error": str(e)},
-                "scan_complete": False
+                "scan_complete": False,
+                "sandbox_info": None
             }
 
     async def _run_llm_sast_scan(self, sandbox_path: str, repo_url: str) -> List[Dict]:
@@ -511,7 +514,7 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
         self.logger.info(f"LLM SAST Scan complete. Found {len(findings)} issues.")
         return findings
     
-    async def _run_security_tools(self, input_data: Dict[str, Any]) -> List[Dict]:
+    async def _run_security_tools(self, input_data: Dict[str, Any]) -> Tuple[List[Dict], str, Dict]:
         """
         Run security scanning tools via PentestExecutor (NeuroSploit Engine).
         
@@ -535,10 +538,14 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
             is_web_app = target.startswith("http") and not is_repo
 
             # --- PHASE 1: REPOSITORY DYNAMIC ANALYSIS ---
+            container_info = None
             if is_repo:
                 self.logger.info("Target identified as repository. Initiating Dynamic Analysis Workflow...")
                 # run_dynamic_analysis handles Clone -> Sandbox -> SAST -> DAST
-                result = await asyncio.to_thread(executor.run_dynamic_analysis, target)
+                # Pass cleanup=False to keep container alive for verification
+                result = await asyncio.to_thread(executor.run_dynamic_analysis, target, False)
+                container_info = result.get("container_info")
+                
                 if not result.get("success"):
                      self.logger.error(f"Dynamic Analysis failed: {result.get('error')}")
 
@@ -603,9 +610,11 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
                      if subdirs:
                          latest_sandbox = max(subdirs, key=lambda x: x.stat().st_mtime)
                          sandbox_path = str(latest_sandbox)
-                         self.logger.info(f"Identified sandbox path for LLM SAST: {sandbox_path}")
+                         if not container_info:
+                             # Fallback if container_info wasn't captured (e.g. error in dynamic analysis)
+                             self.logger.info(f"Identified sandbox path for LLM SAST: {sandbox_path}")
 
-            return findings, sandbox_path
+            return findings, sandbox_path, container_info
                 
         except Exception as e:
             self.logger.error(f"Security tool execution failed: {e}", exc_info=True)
@@ -632,8 +641,17 @@ If no vulnerabilities are found, return {{"vulnerabilities": []}}.
         # Use provided persona + Mission Context
         system_prompt = persona or self.system_prompt
         
-        # Construct prompt with tool findings
+        # Construct prompt with tool findings + CREATIVE ATTACK THINKING
         prompt = f"""{system_prompt}
+
+🎯 CREATIVE RED TEAM MISSION:
+You are a CREATIVE offensive security researcher. Think like a real-world attacker:
+- Chain multiple small vulnerabilities for maximum impact
+- Think of unusual attack vectors that automated scanners miss
+- Consider business logic flaws, not just technical vulnerabilities
+- Imagine worst-case exploitation scenarios
+- Look for non-obvious entry points (timing attacks, race conditions, logic flaws)
+- Consider privilege escalation chains and lateral movement
 
 TOOL FINDINGS:
 {json.dumps(tool_findings, indent=2)}
@@ -645,7 +663,14 @@ CODE CONTEXT:
 Repository: {context.get('repo_url', 'unknown')}
 Branch: {context.get('branch', 'main')}
 
+💡 YOUR CREATIVE ANALYSIS:
+1. What are the NON-OBVIOUS vulnerabilities these tools might have missed?
+2. How can you CHAIN these findings for a critical exploit?
+3. What are the WORST-CASE scenarios if these are exploited creatively?
+4. What business logic or timing-based attacks are possible?
+
 Analyze these findings and output a JSON response with your vulnerability assessment.
+Be CREATIVE and THOROUGH - include attack vectors that scanners don't detect.
 
 IMPORTANT OUTPUT INSTRUCTION:
 - You MUST output ONLY valid JSON.
