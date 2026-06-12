@@ -52,6 +52,7 @@ class GovernanceAgentOutput(AgentOutput):
     """Output schema for GOVERNANCE Agent"""
     governance_id: str
     prioritized_queue: List[Dict[str, Any]]
+    enriched_queue: List[Dict[str, Any]] = []
     decisions: List[Dict[str, Any]]
     risk_scores: Dict[str, float]
 
@@ -202,6 +203,7 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
             
             return {
                 "prioritized_queue": sorted_vulnerabilities,
+                "enriched_queue": prioritized_items,
                 "decisions": decisions,
                 "risk_scores": risk_scores
             }
@@ -210,6 +212,7 @@ V1 OVERRIDE: All fixes go through PR review (no auto-merge)."""
             self.logger.error(f"Governance prioritization failed: {e}")
             return {
                 "prioritized_queue": validated_input.vulnerabilities, # Fallback: unsorted
+                "enriched_queue": [],
                 "decisions": [],
                 "risk_scores": {}
             }
@@ -354,6 +357,7 @@ Return a single JSON object (No Markdown):
             status="success",
             governance_id="GOV-BATCH",
             prioritized_queue=result["prioritized_queue"],
+            enriched_queue=result.get("enriched_queue", []),
             decisions=result["decisions"],
             risk_scores=result["risk_scores"]
         )

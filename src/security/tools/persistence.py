@@ -45,7 +45,7 @@ class PersistenceTools:
                      "location": display_path,
                      "details": "Writable .ssh directory found"
                  })
-        except: pass
+        except OSError: pass
         
         # 2. Cron Jobs
         # Simulation: Check if we can write to cron

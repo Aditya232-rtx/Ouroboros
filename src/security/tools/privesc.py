@@ -47,7 +47,7 @@ class LinuxPrivEsc:
                 timeout=5
             )
             return result.stdout.strip()
-        except:
+        except (subprocess.SubprocessError, OSError):
             return "unknown"
     
     def _find_suid_binaries(self) -> List[str]:
@@ -55,16 +55,13 @@ class LinuxPrivEsc:
         logger.info("Searching for SUID binaries")
         suid_bins = []
         try:
-            # Note: This requires running on the target. 
-            # In an agentic context, this would likely be run via an SSH connection or C2.
-            # Here we assume we are running ON the target or simulation.
-            cmd = 'find / -perm -4000 -type f 2>/dev/null'
+            # Use list args instead of shell=True to prevent command injection
             result = subprocess.run(
-                cmd,
-                shell=True,
+                ["find", "/", "-perm", "-4000", "-type", "f"],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
+                shell=False,
             )
             suid_bins = result.stdout.strip().split('\n')
         except Exception as e:
@@ -83,7 +80,7 @@ class LinuxPrivEsc:
                 timeout=5
             )
             return result.stdout.strip().split('\n')
-        except:
+        except (subprocess.SubprocessError, OSError):
             return []
     
     def _find_writable_paths(self) -> List[str]:
@@ -95,7 +92,7 @@ class LinuxPrivEsc:
             for path in paths:
                 if os.access(path, os.W_OK):
                     writable.append(path)
-        except:
+        except OSError:
             pass
         return writable
     
@@ -116,7 +113,7 @@ class LinuxPrivEsc:
                 elif os.path.isfile(cron_path):
                      with open(cron_path, 'r') as f:
                          jobs.extend(f.readlines())
-            except:
+            except OSError:
                 continue
         return jobs
     
@@ -133,7 +130,7 @@ class LinuxPrivEsc:
                 shell=False # Safer
             )
             return result.stdout.strip().split('\n')
-        except:
+        except (subprocess.SubprocessError, OSError):
             return []
     
     def exploit_suid(self, binary: str) -> Dict:
@@ -177,7 +174,7 @@ class LinuxPrivEsc:
                 "shell_obtained": True,
                 "command": cmd
             }
-        except:
+        except Exception:
             return {"success": False}
 
     def _exploit_vim(self) -> Dict:
@@ -246,5 +243,5 @@ class CredentialHarvester:
                             "source": location,
                             "data": f.read(500) # Preview
                         })
-                 except: pass
+                 except OSError: pass
         return credentials

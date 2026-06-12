@@ -1,0 +1,23 @@
+v1: Complete Ouroboros AI platform overhaul
+
+- Fixed 229+ issues across the entire codebase
+- PR creation pipeline: fork-clone-branch-commit-push-PR with auth token
+- GateStatus JSON serialization fix in scan_worker
+- Safety gates: word-boundary regex, Gate 2/4 regex patterns
+- Gate 3 backward compatibility: passes fixed_code properly
+- Gate 4: SQL keyword counting, regex-based loop detection
+- Dockerfile validation: USER 0 detection, improved threshold logic
+- SKIPPED gate status now accepted alongside PASSED
+- BLUE agent: sanitize_file_path return fix, meaningful test generation,
+  response initialization, retry context with failure feedback
+- Verification engine: regex-based pattern matching in static/PoC checks
+- Verification loop: MAX_RETRIES unified to 3, retry targets only failed vulns
+- blue_fix_node: sandbox_path resolution, selective re-fix on retry
+- RED agent: truncated JSON salvage
+- asyncio event loop cleanup with task cancellation
+- Auth token redaction in git clone logs
+- Research agent: removed hardcoded scan target, full pipeline integration
+- Frontend: proxy migration for all API routes, auth context, research page
+- Semgrep opentelemetry pinned to 1.37.0
+- Docker hardening, rate limiting, JWT security
+- 19/19 validation tests passing across all fixes

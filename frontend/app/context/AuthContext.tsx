@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         async function loadUser() {
             try {
-                const response = await fetch("http://localhost:8000/auth/me", {
+                const response = await fetch("/api/proxy/auth/me", {
                     headers: {
                         "Content-Type": "application/json",
                     },
@@ -62,17 +62,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loadUser();
     }, []);
 
-    const login = (_token: string) => {
-        // In cookie-based auth, we just need to refetch the user or set state
-        // but if we receive token, we might not need to do anything if cookies are set
-        // This function might be called after successful login API call
-        // For now, let's reload user
-        window.location.href = "/"; // Hard refresh to ensure state update or just router push
+    const login = async (_token: string) => {
+        // Refetch user after successful login (cookies already set by backend)
+        try {
+            const response = await fetch("/api/proxy/auth/me", {
+                credentials: "include",
+            });
+            if (response.ok) {
+                const userData = await response.json();
+                setUser(userData);
+            }
+        } catch (error) {
+            console.error("Failed to load user after login", error);
+        }
+        router.push("/");
     };
 
     const logout = async () => {
         try {
-            await fetch("http://localhost:8000/auth/logout", {
+            await fetch("/api/proxy/auth/logout", {
                 method: "POST",
                 credentials: "include",
             });

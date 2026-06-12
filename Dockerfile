@@ -45,11 +45,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Create necessary directories and set permissions
-RUN mkdir -p logs models outputs data && \
-    chmod -R 755 logs models outputs data
+RUN groupadd -r ouroboros && useradd -r -g ouroboros -m ouroboros && \
+    mkdir -p logs models outputs data && \
+    chown -R ouroboros:ouroboros logs models outputs data
 
 # Expose API port
 EXPOSE 8000
+
+# Switch to non-root user
+USER ouroboros
 
 # Health check (using health endpoint)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \

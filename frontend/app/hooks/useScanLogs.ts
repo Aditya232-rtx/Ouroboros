@@ -19,7 +19,7 @@ export function useScanLogs(scanId: string | null, isPaused: boolean = false) {
 
             try {
                 // Determine interval based on retries (simple backoff)
-                const interval = Math.min(2000 + (retryCountRef.current * 1000), 10000);
+                const interval = Math.min(4000 + (retryCountRef.current * 1000), 15000);
 
                 const fetchedLogs = await fetchLogs(scanId);
 
@@ -45,7 +45,7 @@ export function useScanLogs(scanId: string | null, isPaused: boolean = false) {
             } finally {
                 if (isMounted && !isPaused) {
                     // Schedule next poll
-                    const nextInterval = Math.min(2000 + (retryCountRef.current * 1000), 10000);
+                    const nextInterval = Math.min(4000 + (retryCountRef.current * 1000), 15000);
                     timeoutId = setTimeout(pollLogs, nextInterval);
                 }
             }

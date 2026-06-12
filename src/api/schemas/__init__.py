@@ -1,9 +1,9 @@
 # src/api/schemas/__init__.py
 """API request and response schemas for Ouroboros AI."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -11,6 +11,9 @@ class ScanStatus(str, Enum):
     """Status of a security scan."""
     PENDING = "pending"
     RUNNING = "running"
+    SCANNING = "scanning"
+    GENERATING_FIXES = "generating_fixes"
+    VERIFYING = "verifying"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -52,7 +55,7 @@ class ScanResponse(BaseModel):
     scan_id: str = Field(..., description="Unique scan identifier")
     status: ScanStatus = Field(..., description="Current scan status")
     message: str = Field(..., description="Status message")
-    created_at: datetime = Field(default_factory=datetime.utcnow)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============ Status Schemas ============
@@ -66,6 +69,14 @@ class VulnerabilitySummary(BaseModel):
     line: int
     description: str
     confidence: float
+    cvss: float = 0.0
+    
+    # Governance Fields
+    risk_score: float = 0.0
+    priority: int = 0
+    governance_status: str = "pending"
+    policy_rule: Optional[str] = None
+    impact: Optional[str] = None
 
 
 class FixSummary(BaseModel):
@@ -85,7 +96,7 @@ class ScanStatusResponse(BaseModel):
     current_phase: str
     vulnerabilities_found: int
     fixes_applied: int
-    started_at: datetime
+    started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
 
@@ -132,7 +143,7 @@ class ReportExportResponse(BaseModel):
     report_id: str
     file_id: str
     web_view_link: Optional[str] = None
-    exported_at: datetime = Field(default_factory=datetime.utcnow)
+    exported_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============ Error Schemas ============
@@ -142,7 +153,7 @@ class ErrorResponse(BaseModel):
     error: str
     detail: Optional[str] = None
     code: str
-    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 # ============ Health Check ============
@@ -155,39 +166,18 @@ class HealthResponse(BaseModel):
     components: Dict[str, str]
 
 
-__all__ = [
-    "ScanStatus",
-    "SeverityLevel",
-    "ScanRequest",
-    "ScanResponse",
-    "VulnerabilitySummary",
-    "FixSummary",
-    "ScanStatusResponse",
-    "ScanDetailResponse",
-    "ReportRequest",
-    "ReportResponse",
-    "ErrorResponse",
-    "HealthResponse",
-    "UserCreate",
-    "UserLogin",
-    "UserResponse",
-    "TokenResponse",
-    "TokenData",
-]
-
-
 # ============ Auth Schemas ============
 
 class UserCreate(BaseModel):
     """Schema for user registration."""
-    email: str = Field(..., description="User email address")
-    password: str = Field(..., min_length=8, description="User password")
-    full_name: Optional[str] = Field(None, description="User full name")
+    email: EmailStr = Field(..., description="User email address")
+    password: str = Field(..., min_length=8, max_length=128, description="User password")
+    full_name: Optional[str] = Field(None, max_length=255, description="User full name")
 
 
 class UserLogin(BaseModel):
     """Schema for user login."""
-    email: str = Field(..., description="User email address")
+    email: EmailStr = Field(..., description="User email address")
     password: str = Field(..., description="User password")
 
 
@@ -217,4 +207,27 @@ class TokenData(BaseModel):
     sub: Optional[str] = None
     exp: Optional[int] = None
     type: Optional[str] = None
+
+
+__all__ = [
+    "ScanStatus",
+    "SeverityLevel",
+    "ScanRequest",
+    "ScanResponse",
+    "VulnerabilitySummary",
+    "FixSummary",
+    "ScanStatusResponse",
+    "ScanDetailResponse",
+    "LogEntry",
+    "ReportRequest",
+    "ReportResponse",
+    "ReportExportResponse",
+    "ErrorResponse",
+    "HealthResponse",
+    "UserCreate",
+    "UserLogin",
+    "UserResponse",
+    "TokenResponse",
+    "TokenData",
+]
 

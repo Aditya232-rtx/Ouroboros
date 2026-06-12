@@ -3,7 +3,7 @@
 
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import uuid4
 from concurrent.futures import ProcessPoolExecutor
 from fastapi import APIRouter, HTTPException, Depends
@@ -42,6 +42,26 @@ async def create_scan(
     db: Session = Depends(get_db_session),
 ) -> ScanResponse:
     """Initiate a security scan (Persisted)."""
+    # Validate repo_url to prevent SSRF attacks
+    from urllib.parse import urlparse
+    parsed = urlparse(request.repo_url)
+    if parsed.scheme not in ("https", "http"):
+        raise HTTPException(status_code=400, detail="repo_url must use http or https scheme")
+    if not parsed.hostname:
+        raise HTTPException(status_code=400, detail="Invalid repo_url: no hostname")
+    # Block private/internal IPs
+    import ipaddress
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+        if ip.is_private or ip.is_loopback or ip.is_reserved:
+            raise HTTPException(status_code=400, detail="repo_url must not point to private/internal addresses")
+    except ValueError:
+        pass  # hostname is a domain name, not an IP — that's fine
+    
+    allowed_hosts = ["github.com", "gitlab.com", "bitbucket.org"]
+    if parsed.hostname and not any(parsed.hostname.endswith(h) for h in allowed_hosts):
+        logger.warning(f"Scan requested for non-standard host: {parsed.hostname}")
+    
     scan_id = f"SCAN-{datetime.now().strftime('%Y%m%d%H%M%S')}-{uuid4().hex[:8]}"
     
     logger.info(f"Creating scan {scan_id} for {request.repo_url}")
@@ -54,7 +74,7 @@ async def create_scan(
         commit_sha=request.commit_sha,
         status=ScanStatus.PENDING,
         scan_profile=request.scan_profile,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         scan_metadata={"current_phase": "pending"}
     )
     db.add(new_scan)
@@ -76,28 +96,6 @@ async def create_scan(
     
     logger.info(f"✅ Scan {scan_id} queued in separate process for {request.repo_url}")
     
-    
-    # Submit scan to process pool (non-blocking)
-    loop = asyncio.get_event_loop()
-    request_data = {
-        "repo_url": request.repo_url,
-        "branch": request.branch or "main",
-        "commit_sha": request.commit_sha or "HEAD",
-        "scan_profile": request.scan_profile,
-        "auto_fix": request.auto_fix,
-        "create_pr": request.create_pr,
-    }
-    
-    loop.run_in_executor(scan_executor, run_scan_in_process, scan_id, request_data)
-    
-    logger.info(f"✅ Scan {scan_id} queued in separate process for {request.repo_url}")
-    
-    return ScanResponse(
-        scan_id=scan_id,
-        status=API_ScanStatus.PENDING,
-        message=f"Scan queued for {request.repo_url}",
-        created_at=new_scan.created_at,
-    )
     return ScanResponse(
         scan_id=scan_id,
         status=API_ScanStatus.PENDING,
@@ -121,7 +119,7 @@ async def get_scan(scan_id: str, db: Session = Depends(get_db_session)) -> ScanR
     status_str = scan.status.value if hasattr(scan.status, 'value') else str(scan.status)
     try:
         api_status = API_ScanStatus(status_str)
-    except:
+    except (ValueError, KeyError):
         api_status = API_ScanStatus.PENDING
 
     phase = scan.scan_metadata.get("current_phase", "unknown") if scan.scan_metadata else "unknown"
@@ -187,6 +185,7 @@ def get_scan_data(scan_id: str) -> dict:
             "completed_at": scan.completed_at,
             "error_message": scan.error_message,
             "result": meta.get("result"),
+            "scan_metadata": meta, # <--- Added this
             "pr_url": scan.pr_url,
             "logs": logs_list
         }
@@ -217,10 +216,19 @@ async def create_scan_from_existing(
     
     logger.info(f"Creating partial scan {scan_id} from {red_output_path}")
     
-    # Validate RED output exists
-    red_file = Path(red_output_path)
+    # Validate RED output path: prevent path traversal
+    red_file = Path(red_output_path).resolve()
+    allowed_dirs = [
+        Path("outputs").resolve(),
+        Path("data").resolve(),
+    ]
+    if not any(str(red_file).startswith(str(d)) for d in allowed_dirs):
+        raise HTTPException(
+            status_code=400,
+            detail="red_output_path must be under outputs/ or data/ directory"
+        )
     if not red_file.exists():
-        raise HTTPException(status_code=404, detail=f"RED output file not found: {red_output_path}")
+        raise HTTPException(status_code=404, detail="RED output file not found")
     
     # Create DB Record
     new_scan = Scan(
@@ -229,7 +237,7 @@ async def create_scan_from_existing(
         branch=branch,
         status=ScanStatus.GENERATING_FIXES,
         scan_profile="partial",
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
         scan_metadata={"current_phase": "governance", "partial": True, "red_output": red_output_path}
     )
     db.add(new_scan)

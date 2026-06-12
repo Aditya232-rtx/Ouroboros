@@ -104,5 +104,5 @@ except Exception as e:
         print("⚠️ Attempting cleanup of temp file...")
         try:
              drive_srv.files().delete(fileId=doc_id).execute()
-        except:
+        except Exception:
             pass

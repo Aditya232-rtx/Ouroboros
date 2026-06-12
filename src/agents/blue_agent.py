@@ -349,6 +349,8 @@ For each vulnerability, provide:
                 file_path = file_path[len(prefix):]
                 break
         
+        return file_path
+    
     def _get_cwe_fix_guidance(self, cwe: str, vuln_type: str, language: str) -> str:
         """
         Get specific fix guidance based on CWE and vulnerability type.
@@ -414,7 +416,6 @@ For each vulnerability, provide:
                 return guidance
         
         return "Fix the security vulnerability while preserving functionality."
-        return file_path.lstrip("/")
     
     def _read_file_content(self, sandbox_path: str, file_path: str) -> Optional[str]:
         """
@@ -530,8 +531,17 @@ IMPORTANT:
 - ALL fixes MUST pass safety gates (no eval/exec/shell, no hardcoded secrets)
 - FIXED CODE must be complete and working (not pseudocode)"""
         
+        # Add retry context if previous fix failed verification
+        retry_feedback = vuln_data.get('retry_feedback', '')
+        if retry_feedback:
+            prompt += (
+                f"\n\n## \u26a0\ufe0f RETRY CONTEXT\n{retry_feedback}\n"
+                f"You MUST use a FUNDAMENTALLY DIFFERENT approach from your previous attempt."
+            )
+        
         # Parse multi-option response
         fixes = []
+        response = ""
         for option_num in range(1, 3):  # Generate 2 options only
             try:
                 response = self._call_llm(prompt) if option_num == 1 else response
@@ -573,7 +583,15 @@ IMPORTANT:
                             after=fix_data.get("after", ""),
                             lines_changed=len(fix_data.get("after", "").split("\n"))
                         ),
-                        test_code=f"def test_{safe_vuln_name}_option{option_num}_fix():\n    # Option {option_num}: {approaches[option_num-1]} approach\n    assert True\n",
+                        test_code=(
+                            f"def test_{safe_vuln_name}_option{option_num}_safety():\n"
+                            f"    '''Verify fix does not introduce dangerous patterns'''\n"
+                            f"    with open('module_under_test.py') as f:\n"
+                            f"        source = f.read()\n"
+                            f"    assert 'eval(' not in source, 'Fix must not use eval()'\n"
+                            f"    assert 'shell=True' not in source, 'Fix must not use shell=True'\n"
+                            f"    assert 'os.system(' not in source, 'Fix must not use os.system()'\n"
+                        ),
                         safety_gates={},
                         confidence=0.8 if option_num == 2 else (0.7 if option_num == 1 else 0.9),
                         recommendation="PENDING",

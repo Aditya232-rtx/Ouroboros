@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import StatsCard from "../../components/StatsCard";
 import TerminalLog from "../../components/TerminalLog";
@@ -8,26 +8,14 @@ import { FileText, Download, CheckCircle, Clock, ShieldCheck, FileJson, Lock, Za
 import { Button } from "../../components/lightswind/button";
 import { Badge } from "../../components/lightswind/badge";
 import { LogEntry } from "../../lib/types";
-import { downloadAuditReportPdf, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
-import { useScanLogs } from "../../hooks/useScanLogs";
+import { downloadReportPdf, fetchLogs, fetchScanStatus, fetchVulnerabilities } from "../../lib/api";
 
-export default function AuditPage() {
+function AuditContent() {
     const searchParams = useSearchParams();
     const scanId = searchParams.get("scan_id") || "latest";
-
-    const { logs: allLogs } = useScanLogs(scanId);
-
-    // Filter for Audit and Governance logs (Standardized)
-    const logs = allLogs.filter(l =>
-        l.source === "AUDIT" ||
-        l.source === "GOVERNANCE" ||
-        l.source === "governance" ||
-        l.source === "system" ||
-        l.message.toLowerCase().includes("audit")
-    );
-
-    const [repoUrl, setRepoUrl] = useState("");
-
+    
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [scanStatus, setScanStatus] = useState<{ repo_url?: string } | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
     const [stats, setStats] = useState({
         totalVulns: 0,
@@ -39,7 +27,7 @@ export default function AuditPage() {
     const handleDownloadPdf = async () => {
         setIsDownloading(true);
         try {
-            await downloadAuditReportPdf(scanId);
+            await downloadReportPdf(scanId);
         } catch (error) {
             console.error("Download failed:", error);
             alert("Failed to download report. Please try again.");
@@ -58,32 +46,41 @@ export default function AuditPage() {
     useEffect(() => {
         const loadData = async () => {
             try {
-                // Logs handled by hook
-
+                // Fetch logs
+                const logData = await fetchLogs(scanId);
+                if (logData.length > 0) {
+                    // Filter for audit-related logs
+                    const auditLogs = logData.filter(l => 
+                        l.source === "governance" || 
+                        l.source === "system" ||
+                        l.message.toLowerCase().includes("audit") ||
+                        l.message.toLowerCase().includes("hash") ||
+                        l.message.toLowerCase().includes("signature")
+                    );
+                    setLogs(auditLogs.length > 0 ? auditLogs : logData.slice(-20));
+                }
+                
                 // Fetch scan status and vulnerabilities for stats
                 const status = await fetchScanStatus(scanId);
-                if (status) setRepoUrl(status.repo_url || "");
-
+                setScanStatus(status);
                 const vulns = await fetchVulnerabilities(scanId);
-
-                if (vulns) {
-                    const fixedCount = vulns.filter(v => v.status === "remediated").length;
-
-                    setStats({
-                        totalVulns: vulns.length,
-                        fixedVulns: fixedCount,
-                        codeCoverage: vulns.length > 0 ? `${Math.round((fixedCount / vulns.length) * 100)}%` : "N/A",
-                        auditStatus: status?.status === "completed" ? "Passing" : "In Progress"
-                    });
-
-                    // Update artifacts with dynamic data
-                    setArtifacts([
-                        { name: `audit_${scanId || 'latest'}.pdf`, size: "2.4 MB", time: "Ready", type: "pdf" },
-                        { name: `vulns_${scanId || 'latest'}.json`, size: `${vulns.length * 2} KB`, time: "Ready", type: "code" },
-                        { name: `sig_${scanId || 'latest'}.txt`, size: "2 KB", time: "Ready", type: "lock" },
-                    ]);
-                }
-
+                
+                const fixedCount = vulns.filter(v => v.status === "remediated").length;
+                
+                setStats({
+                    totalVulns: vulns.length,
+                    fixedVulns: fixedCount,
+                    codeCoverage: vulns.length > 0 ? `${Math.round((fixedCount / vulns.length) * 100)}%` : "N/A",
+                    auditStatus: status?.status === "completed" ? "Passing" : "In Progress"
+                });
+                
+                // Update artifacts with dynamic data
+                setArtifacts([
+                    { name: `audit_${scanId}.pdf`, size: "2.4 MB", time: "Ready", type: "pdf" },
+                    { name: `vulns_${scanId}.json`, size: `${vulns.length * 2} KB`, time: "Ready", type: "code" },
+                    { name: `sig_${scanId}.txt`, size: "2 KB", time: "Ready", type: "lock" },
+                ]);
+                
             } catch (error) {
                 console.error("Failed to load audit data:", error);
             }
@@ -105,14 +102,14 @@ export default function AuditPage() {
                         <span className="ml-3 px-2 py-0.5 rounded textxs bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono text-xs border border-slate-200 dark:border-slate-700">v1.0.4-beta</span>
                     </h1>
                     <p className="text-slate-500 text-sm ml-9">
-                        Repository: <span className="text-emerald-600 dark:text-emerald-500 cursor-pointer hover:underline">{repoUrl || "Loading..."}</span>
+                        Repository: <span className="text-emerald-600 dark:text-emerald-500 cursor-pointer hover:underline">{scanStatus?.repo_url?.replace("https://github.com/", "") || "Loading..."}</span>
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
                     <Button variant="outline" className="bg-white dark:bg-slate-800 font-mono text-xs">
                         Copy Hash
                     </Button>
-                    <Button
+                    <Button 
                         className="bg-emerald-500 hover:bg-emerald-600 text-white shadow-md shadow-emerald-500/20"
                         onClick={handleDownloadPdf}
                         disabled={isDownloading}
@@ -253,5 +250,13 @@ export default function AuditPage() {
                 />
             </div>
         </div>
+    );
+}
+
+export default function AuditPage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+            <AuditContent />
+        </Suspense>
     );
 }

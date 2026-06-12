@@ -2,7 +2,7 @@
 """JWT token utilities for Ouroboros authentication."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
 
 from jose import jwt, JWTError
@@ -22,12 +22,13 @@ REFRESH_TOKEN_EXPIRE_DAYS = 7
 
 
 def get_secret_key() -> str:
-    """Get JWT secret key from settings or environment."""
-    secret = getattr(settings, "jwt_secret_key", None)
-    if not secret:
-        # Fallback for development (NOT secure for production)
-        secret = "dev-secret-key-change-in-production"
-        logger.warning("Using development JWT secret key - NOT secure for production!")
+    """Get JWT secret key from settings."""
+    secret = getattr(settings, "jwt_secret_key", None) or getattr(settings, "secret_key", None)
+    if not secret or secret.startswith("dev-only-insecure"):
+        if getattr(settings, "environment", "development") == "production":
+            raise RuntimeError("JWT_SECRET_KEY must be set to a secure value in production!")
+        logger.warning("Using development JWT secret key — NOT secure for production!")
+        secret = "dev-only-insecure-key-do-not-use-in-production"
     return secret
 
 
@@ -37,7 +38,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password using bcrypt."""
+    """Hash a password using Argon2."""
     return pwd_context.hash(password)
 
 
@@ -58,13 +59,13 @@ def create_access_token(
     to_encode = data.copy()
     
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
         "type": "access"
     })
     
@@ -89,13 +90,13 @@ def create_refresh_token(
     to_encode = data.copy()
     
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = datetime.now(timezone.utc) + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+        expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     
     to_encode.update({
         "exp": expire,
-        "iat": datetime.utcnow(),
+        "iat": datetime.now(timezone.utc),
         "type": "refresh"
     })
     
@@ -120,12 +121,6 @@ def verify_token(token: str, token_type: str = "access") -> Optional[Dict[str, A
         # Verify token type
         if payload.get("type") != token_type:
             logger.warning(f"Token type mismatch: expected {token_type}, got {payload.get('type')}")
-            return None
-        
-        # Check expiry (jose handles this, but double-check)
-        exp = payload.get("exp")
-        if exp and datetime.fromtimestamp(exp) < datetime.utcnow():
-            logger.warning("Token has expired")
             return None
         
         return payload

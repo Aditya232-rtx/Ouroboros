@@ -2,7 +2,7 @@
 """Authentication routes for Ouroboros AI."""
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -62,7 +62,7 @@ async def signup(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
         full_name=user_in.full_name,
-        created_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
     )
     
     db.add(user)
@@ -118,7 +118,7 @@ async def login(
     # Set tokens in HttpOnly cookies
     response.set_cookie(
         key="access_token",
-        value=f"Bearer {access_token}",
+        value=access_token,
         httponly=True,
         secure=use_secure_cookies,
         samesite="lax",
@@ -205,7 +205,7 @@ async def refresh_token(
     # Update cookies
     response.set_cookie(
         key="access_token",
-        value=f"Bearer {access_token}",
+        value=access_token,
         httponly=True,
         secure=use_secure_cookies,
         samesite="lax",
@@ -251,8 +251,9 @@ async def read_users_me(
     """Get current user profile."""
     # Check cookie
     token = request.cookies.get("access_token")
+    # Also check for legacy 'Bearer ' prefix in cookie
     if token and token.startswith("Bearer "):
-        token = token.split(" ")[1]
+        token = token[7:]
         
     if not token:
         # Check header

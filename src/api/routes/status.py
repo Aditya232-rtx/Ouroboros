@@ -65,27 +65,79 @@ async def get_status_detail(scan_id: str) -> ScanDetailResponse:
     
     # Extract vulnerabilities from result
     vulnerabilities = []
-    result = scan_data.get("result") or {}
-    for vuln in result.get("vulnerabilities", []):
-        vulnerabilities.append(VulnerabilitySummary(
-            id=vuln.get("id", "unknown"),
-            type=vuln.get("type", "unknown"),
-            severity=SeverityLevel(vuln.get("severity", "medium")),
-            file=vuln.get("location", {}).get("file", "unknown"),
-            line=vuln.get("location", {}).get("line", 0),
-            description=vuln.get("description", ""),
-            confidence=vuln.get("confidence", 0.0),
-        ))
-    
-    # Extract fixes from result
     fixes = []
-    for fix in result.get("fixes", []):
-        fixes.append(FixSummary(
-            vulnerability_id=fix.get("vulnerability_id", "unknown"),
-            status=fix.get("status", "pending"),
-            file=fix.get("file", "unknown"),
-            lines_changed=fix.get("lines_changed", 0),
-        ))
+    
+    try:
+        # Get metadata for governance info
+        metadata = scan_data.get("scan_metadata", {}) or {}
+        result = scan_data.get("result") or {}
+        
+        # Build governance map for O(1) lookup
+        gov_map = {}
+        governance_queue = metadata.get("governance_queue", []) or []
+        
+        for item in governance_queue:
+            if isinstance(item, dict):
+                v_id = item.get("vulnerability_id")
+                if v_id:
+                    gov_map[v_id] = item
+
+        # Use result vulnerabilities if available (final state)
+        raw_vulns = result.get("vulnerabilities", []) or []
+        
+        # If no result vulnerabilities (e.g. still running), try governance queue
+        if not raw_vulns and governance_queue:
+            raw_vulns = [
+                item.get("original_vulnerability")
+                for item in governance_queue
+                if isinstance(item, dict) and item.get("original_vulnerability")
+            ]
+
+        for vuln in raw_vulns:
+            if not isinstance(vuln, dict):
+                continue
+            v_id = vuln.get("id", "unknown")
+            gov_info = gov_map.get(v_id, {})
+            
+            severity_str = str(vuln.get("severity", "medium")).lower()
+            try:
+                severity = SeverityLevel(severity_str)
+            except ValueError:
+                severity = SeverityLevel("medium")
+            
+            location = vuln.get("location") or {}
+            if not isinstance(location, dict):
+                location = {}
+            
+            vulnerabilities.append(VulnerabilitySummary(
+                id=v_id,
+                type=vuln.get("type", "unknown"),
+                severity=severity,
+                file=location.get("file", "unknown"),
+                line=location.get("line", 0),
+                description=vuln.get("description", ""),
+                confidence=float(vuln.get("confidence", 0.0) or 0.0),
+                cvss=float(vuln.get("cvss", 0.0) or 0.0) or (float(gov_info.get("risk_score", 0.0) or 0.0) / 10.0),
+                risk_score=float(gov_info.get("risk_score", 0.0) or 0.0),
+                priority=int(gov_info.get("priority", 0) or 0),
+                governance_status="pending",
+                policy_rule=f"Risk Score > {gov_info.get('risk_score', 0)}",
+                impact=gov_info.get("reasoning", "Pending evaluation")
+            ))
+        
+        # Extract fixes from result
+        for fix in (result.get("fixes", []) or []):
+            if not isinstance(fix, dict):
+                continue
+            fixes.append(FixSummary(
+                vulnerability_id=fix.get("vulnerability_id", "unknown"),
+                status=fix.get("status", "pending"),
+                file=fix.get("file", "unknown"),
+                lines_changed=fix.get("lines_changed", 0),
+            ))
+    except Exception as e:
+        logger.error(f"Error building detail response for scan {scan_id}: {e}")
+        # Continue with empty lists rather than crashing
     
     return ScanDetailResponse(
         scan_id=scan_id,

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import TerminalLog from "../../components/TerminalLog";
@@ -9,7 +9,7 @@ import { ScanStatus } from "../../lib/types";
 import { Pause, Play } from "lucide-react";
 import { useScanLogs } from "../../hooks/useScanLogs";
 
-export default function WarRoomPage() {
+function WarRoomContent() {
     const searchParams = useSearchParams();
     const repo = searchParams.get("repo");
 
@@ -118,7 +118,7 @@ export default function WarRoomPage() {
 
         // Initial load
         loadStatus();
-        const interval = setInterval(loadStatus, 3000);
+        const interval = setInterval(loadStatus, 5000);
 
         return () => clearInterval(interval);
     }, [isPaused, scanId]);
@@ -190,5 +190,13 @@ export default function WarRoomPage() {
                 </div>
             </div>
         </div>
+    );
+}
+
+export default function WarRoomPage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+            <WarRoomContent />
+        </Suspense>
     );
 }

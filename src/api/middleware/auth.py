@@ -2,6 +2,7 @@
 """Authentication middleware for Ouroboros AI API."""
 
 import logging
+import hmac
 from typing import Optional
 from fastapi import Request, HTTPException, Depends
 from fastapi.security import APIKeyHeader
@@ -29,10 +30,10 @@ async def verify_api_key(api_key: Optional[str] = Depends(api_key_header)) -> st
             headers={"WWW-Authenticate": "ApiKey"},
         )
     
-    # Validate against configured API keys
+    # Validate against configured API keys (timing-safe comparison)
     valid_keys = settings.api_keys if hasattr(settings, "api_keys") else []
     
-    if api_key not in valid_keys:
+    if not any(hmac.compare_digest(api_key, k) for k in valid_keys):
         logger.warning(f"Invalid API key attempt: {api_key[:8]}...")
         raise HTTPException(
             status_code=403,
@@ -71,10 +72,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if not api_key:
             return self._unauthorized_response("Missing API key")
         
-        # Validate key
+        # Validate key (timing-safe)
         valid_keys = settings.api_keys if hasattr(settings, "api_keys") else []
         
-        if api_key not in valid_keys:
+        if not any(hmac.compare_digest(api_key, k) for k in valid_keys):
             logger.warning(f"Invalid API key from {request.client.host}")
             return self._unauthorized_response("Invalid API key")
         

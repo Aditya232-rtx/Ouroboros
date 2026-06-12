@@ -8,7 +8,7 @@ from src.orchestration.state import OuroborosState
 
 logger = logging.getLogger(__name__)
 
-MAX_RETRIES = 1  # User requirement: Single verification attempt only
+MAX_RETRIES = 3  # Max retry attempts before aborting workflow
 
 def route_after_verification(state: OuroborosState) -> str:
     """

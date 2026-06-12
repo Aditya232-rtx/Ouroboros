@@ -1,26 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import AgentLoopVisualization from "../../components/AgentLoopVisualization";
 import TerminalLog from "../../components/TerminalLog";
 import StatsCard from "../../components/StatsCard";
-import { fetchVulnerabilities, fetchLogs, fetchScanStatus, downloadReportPdf, downloadInitialReportPdf } from "../../lib/api";
-import { useScanLogs } from "../../hooks/useScanLogs";
+import { fetchVulnerabilities, fetchLogs, fetchScanStatus, downloadReportPdf } from "../../lib/api";
 import { Vulnerability, LogEntry, ScanStatus } from "../../lib/types";
 import { ShieldAlert, Wrench, GitPullRequest, Timer, Download } from "lucide-react";
 
-export default function RedAgentPage() {
+function RedAgentContent() {
     const searchParams = useSearchParams();
-    const scanId = searchParams.get("scanId") || searchParams.get("scan_id") || "latest";
-
+    const scanId = searchParams.get("scan_id") || "latest";
+    
     const [vulnerabilities, setVulnerabilities] = useState<Vulnerability[]>([]);
-    // Use hook for robust log fetching
-    const { logs: allLogs } = useScanLogs(scanId);
-
-    // Strict filtering for Red Agent logs only
-    const logs = allLogs.filter(l => l.source === "RED_AGENT");
-
+    const [logs, setLogs] = useState<LogEntry[]>([]);
     const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null);
     const [isDownloading, setIsDownloading] = useState(false);
     const [stats, setStats] = useState({
@@ -33,7 +27,7 @@ export default function RedAgentPage() {
     const handleDownloadReport = async () => {
         setIsDownloading(true);
         try {
-            await downloadInitialReportPdf(scanId);
+            await downloadReportPdf(scanId);
         } catch (error) {
             console.error("Download failed:", error);
             alert("Failed to download report. Please try again.");
@@ -47,31 +41,30 @@ export default function RedAgentPage() {
             try {
                 // Fetch vulnerabilities
                 const vulns = await fetchVulnerabilities(scanId);
-                // Keep existing if fetch fails/returns empty unexpectedly? 
-                // Vulns API returns [] on error. Let's trust it for now but maybe safeguard?
-                if (vulns) setVulnerabilities(vulns);
-
-                // Logs are handled by useScanLogs hook now
-
+                setVulnerabilities(vulns);
+                
+                // Fetch logs
+                const logData = await fetchLogs(scanId);
+                if (logData.length > 0) {
+                    setLogs(logData);
+                }
+                
                 // Fetch scan status
                 const status = await fetchScanStatus(scanId);
-                if (status) {
-                    setScanStatus(status);
-
-                    // Calculate stats ONLY if we have valid data
-                    const critical = vulns.filter(v => v.severity === "critical").length;
-                    const high = vulns.filter(v => v.severity === "high").length;
-                    setStats({
-                        vulnsFound: vulns.length,
-                        autoFixed: vulns.filter(v => v.status === "remediated").length,
-                        pullRequests: status?.status === "completed" ? 1 : 0,
-                        scanTime: status?.started_at ?
-                            `${Math.floor((Date.now() - new Date(status.started_at).getTime()) / 60000)}m` : "0m"
-                    });
-                }
+                setScanStatus(status);
+                
+                // Calculate stats
+                const critical = vulns.filter(v => v.severity === "critical").length;
+                const high = vulns.filter(v => v.severity === "high").length;
+                setStats({
+                    vulnsFound: vulns.length,
+                    autoFixed: vulns.filter(v => v.status === "remediated").length,
+                    pullRequests: status?.status === "completed" ? 1 : 0,
+                    scanTime: status?.started_at ? 
+                        `${Math.floor((Date.now() - new Date(status.started_at).getTime()) / 60000)}m` : "0m"
+                });
             } catch (error) {
                 console.error("Failed to load data:", error);
-                // Do NOT clear state on error
             }
         };
 
@@ -92,11 +85,11 @@ export default function RedAgentPage() {
                         War Room
                     </h1>
                     <p className="text-slate-500 text-sm ml-6">
-                        Monitoring autonomous remediation agents on <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-xs">{scanStatus?.repo_url?.replace("https://github.com/", "") || "Loading..."}</span>
+                        Monitoring autonomous security agents on <span className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono text-xs">{scanStatus?.repo_url?.replace("https://github.com/", "") || "Loading..."}</span>
                     </p>
                 </div>
                 <div className="flex items-center space-x-3">
-                    <button
+                    <button 
                         className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors flex items-center"
                         onClick={handleDownloadReport}
                         disabled={isDownloading}
@@ -173,5 +166,13 @@ export default function RedAgentPage() {
                 />
             </div>
         </div>
+    );
+}
+
+export default function RedAgentPage() {
+    return (
+        <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+            <RedAgentContent />
+        </Suspense>
     );
 }
