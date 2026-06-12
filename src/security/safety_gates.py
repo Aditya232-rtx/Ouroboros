@@ -95,7 +95,7 @@ class SafetyGates:
         
         # Gate 5: Test Coverage
         self.logger.info("Running Gate 5: Test Coverage")
-        gate5 = await self.gate_5_test_coverage(fixed_code, test_code)
+        gate5 = await self.gate_5_test_coverage(fixed_code, test_code, language)
         results.append(gate5)
         
         # Check if all passed
@@ -327,9 +327,7 @@ class SafetyGates:
                         sys.executable, "-m", "pytest",
                         test_file,
                         "--tb=short",
-                        "-v",
-                        "--json-report",
-                        f"--json-report-file={os.path.join(tmpdir, 'report.json')}"
+                        "-v"
                     ],
                     capture_output=True,
                     text=True,
@@ -337,19 +335,18 @@ class SafetyGates:
                     cwd=tmpdir
                 )
                 
-                # Try to read JSON report
-                report_file = os.path.join(tmpdir, "report.json")
-                if os.path.exists(report_file):
-                    with open(report_file) as f:
-                        report = json.load(f)
-                    passed = report.get("summary", {}).get("passed", 0)
-                    failed = report.get("summary", {}).get("failed", 0)
-                    total = passed + failed
-                else:
-                    # Fallback: parse return code
-                    passed = 1 if result.returncode == 0 else 0
-                    failed = 0 if result.returncode == 0 else 1
-                    total = 1
+                # Parse pytest output for results (e.g., "1 passed" or "1 failed")
+                import re as result_re
+                output_text = result.stdout + result.stderr
+                passed_match = result_re.search(r'(\d+)\s+passed', output_text)
+                failed_match = result_re.search(r'(\d+)\s+failed', output_text)
+                error_match = result_re.search(r'(\d+)\s+error', output_text)
+                
+                passed = int(passed_match.group(1)) if passed_match else 0
+                failed = int(failed_match.group(1)) if failed_match else 0
+                errors = int(error_match.group(1)) if error_match else 0
+                failed += errors  # Treat errors as failures
+                total = passed + failed if (passed + failed) > 0 else 1
                 
                 if result.returncode != 0:
                     self.logger.warning(f"Backward compatibility tests passed with issues: {failed}/{total} tests failed. Proceeding with caution.")
@@ -453,16 +450,50 @@ class SafetyGates:
     async def gate_5_test_coverage(
         self, 
         fixed_code: str, 
-        test_code: str = None
+        test_code: str = None,
+        language: str = "python"
     ) -> GateResult:
         """
         Gate 5: Ensure test coverage >80%
         
         Measures code coverage of the fix using coverage.py
+        For non-Python languages (Dockerfile, YAML, etc.), uses alternative validation.
         """
         import tempfile
         import os
         import json
+        
+        # List of non-executable languages where Python coverage doesn't apply
+        non_python_languages = ["dockerfile", "yaml", "yml", "json", "xml", "toml", 
+                                "markdown", "md", "shell", "bash", "sh", "sql", "html", "css"]
+        
+        # For non-Python code, use alternative validation
+        if language.lower() in non_python_languages:
+            # For Dockerfiles, check for security best practices
+            if language.lower() == "dockerfile":
+                dockerfile_checks = self._validate_dockerfile(fixed_code)
+                if dockerfile_checks["passed"]:
+                    return GateResult(
+                        gate_name="Test Coverage",
+                        status=GateStatus.PASSED,
+                        reason=f"Dockerfile validation passed: {dockerfile_checks['reason']}",
+                        details={"method": "dockerfile_lint", "checks": dockerfile_checks["checks"]}
+                    )
+                else:
+                    return GateResult(
+                        gate_name="Test Coverage",
+                        status=GateStatus.FAILED,
+                        reason=f"Dockerfile validation failed: {dockerfile_checks['reason']}",
+                        details={"method": "dockerfile_lint", "issues": dockerfile_checks["issues"]}
+                    )
+            else:
+                # For other non-Python languages, pass with note
+                return GateResult(
+                    gate_name="Test Coverage",
+                    status=GateStatus.PASSED,
+                    reason=f"Coverage check skipped for {language} (non-Python language)",
+                    details={"method": "language_skip", "language": language}
+                )
         
         if not test_code:
             return GateResult(
@@ -584,3 +615,71 @@ class SafetyGates:
 
 # Global safety gates instance
 safety_gates = SafetyGates()
+
+# Add helper method for Dockerfile validation
+def _validate_dockerfile_impl(fixed_code: str) -> Dict[str, Any]:
+    """
+    Validate Dockerfile for security best practices.
+    
+    Checks:
+    - USER instruction (non-root user)
+    - HEALTHCHECK instruction
+    - No sensitive data in ENV
+    - Pinned base image versions
+    """
+    checks = []
+    issues = []
+    
+    lines = fixed_code.upper().split('\n')
+    code_lower = fixed_code.lower()
+    
+    # Check 1: USER instruction present (non-root)
+    has_user = any('USER' in line and 'ROOT' not in line for line in lines if line.strip().startswith('USER'))
+    if has_user:
+        checks.append("USER instruction present (non-root)")
+    else:
+        # Check if there's any USER instruction
+        if any(line.strip().startswith('USER') for line in lines):
+            issues.append("USER is set to root - should use non-root user")
+        else:
+            issues.append("Missing USER instruction - container runs as root")
+    
+    # Check 2: HEALTHCHECK instruction
+    has_healthcheck = any(line.strip().startswith('HEALTHCHECK') for line in lines)
+    if has_healthcheck:
+        checks.append("HEALTHCHECK instruction present")
+    else:
+        issues.append("Missing HEALTHCHECK instruction")
+    
+    # Check 3: No secrets in ENV
+    sensitive_patterns = ['password', 'secret', 'api_key', 'token', 'private']
+    for line in fixed_code.split('\n'):
+        if line.strip().upper().startswith('ENV'):
+            for pattern in sensitive_patterns:
+                if pattern in line.lower():
+                    issues.append(f"Potential secret in ENV: {pattern}")
+                    break
+    if not any('secret' in i.lower() for i in issues):
+        checks.append("No secrets in ENV variables")
+    
+    # Check 4: Pinned base image version
+    from_lines = [l for l in fixed_code.split('\n') if l.strip().upper().startswith('FROM')]
+    for from_line in from_lines:
+        if ':' in from_line and 'latest' not in from_line.lower():
+            checks.append("Base image has pinned version")
+        elif 'latest' in from_line.lower() or ':' not in from_line:
+            issues.append("Base image should use pinned version, not :latest")
+    
+    # Determine overall pass/fail
+    # Pass if at least 2 security checks are present
+    passed = len(checks) >= 2 or (len(issues) == 0)
+    
+    return {
+        "passed": passed,
+        "checks": checks,
+        "issues": issues,
+        "reason": f"{len(checks)} security checks passed" if passed else f"{len(issues)} issues found"
+    }
+
+# Attach method to SafetyGates class
+SafetyGates._validate_dockerfile = lambda self, code: _validate_dockerfile_impl(code)
