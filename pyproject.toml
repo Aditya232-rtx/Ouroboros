@@ -1,6 +1,6 @@
 [tool.poetry]
 name            = "ouroboros-sdk"
-version         = "1.0.0"
+version         = "1.1.0"
 description     = "Production Security Automation: ANY Git repo → Fixes + PRs + Docs"
 authors         = ["Ouroboros Team <team@ouroboros.ai>"]
 license         = "Apache-2.0"
@@ -10,33 +10,71 @@ classifiers     = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
-packages = [{include = "ouroboros"}]
+# Bundle ALL packages required for full pipeline:
+#   ouroboros/ = SDK wrapper + CLI
+#   src/       = agents, orchestration, integrations, security, etc.
+#   config/    = settings, agent configs, security configs
+packages = [
+    {include = "ouroboros"},
+    {include = "src"},
+    {include = "config"},
+]
+# Include Jinja2 templates and example config
+include = [
+    "templates/*.j2",
+    "config.example.yaml",
+]
 
 [tool.poetry.dependencies]
-python            = "^3.11"
-langgraph         = ">=1.0.0"
-langchain         = ">=1.0.0"
+python              = ">=3.11,<4.0"
+# ── Core framework ──
+langgraph           = ">=1.0.0"
+langchain           = ">=1.0.0"
+langchain-core      = ">=1.0.0"
 langchain-community = ">=0.4.0"
-ollama            = ">=0.6.0"
-semgrep           = ">=1.45.0"
-PyGithub          = ">=2.3.0"
-gitpython         = ">=3.1.40"
-Jinja2            = ">=3.1.2"
-click             = ">=8.1.7"
-PyYAML            = ">=6.0.1"
-redis             = ">=5.0.1"
-psycopg2-binary   = ">=2.9.9"
-reportlab         = ">=4.0.8"
-docker            = ">=7.0.0"
-pydantic          = ">=2.0.0"
-pydantic-settings = ">=2.0.0"
-python-dotenv     = ">=1.0.0"
-tenacity          = ">=9.0.0"
-rich              = ">=13.0.0"
-cryptography      = ">=46.0.0"
-python-jose       = ">=3.5.0"
-SQLAlchemy        = ">=2.0.0"
+ollama              = ">=0.6.0"
+# ── Scanning & security ──
+semgrep             = ">=1.45.0"
+# ── GitHub integration ──
+PyGithub            = ">=2.3.0"
+gitpython           = ">=3.1.40"
+# ── Templating & CLI ──
+Jinja2              = ">=3.1.2"
+click               = ">=8.1.7"
+PyYAML              = ">=6.0.1"
+rich                = ">=13.0.0"
+# ── Data & storage ──
+redis               = ">=5.0.1"
+psycopg2-binary     = ">=2.9.9"
+SQLAlchemy          = ">=2.0.0"
+# ── PDF / reporting ──
+reportlab           = ">=4.0.8"
+# ── Infrastructure ──
+docker              = ">=7.0.0"
+# ── Pydantic & settings ──
+pydantic            = ">=2.0.0"
+pydantic-settings   = ">=2.0.0"
+python-dotenv       = ">=1.0.0"
+# ── Resilience ──
+tenacity            = ">=9.0.0"
+# ── Security / crypto ──
+cryptography        = ">=42.0.0"
+python-jose         = ">=3.5.0"
+passlib             = ">=1.7.4"
+argon2-cffi         = ">=21.0.0"
+# ── HTTP ──
+requests            = ">=2.31.0"
+httpx               = ">=0.24.0"
+# ── Web framework (for API mode) ──
+fastapi             = ">=0.100.0"
+uvicorn             = ">=0.23.0"
+python-multipart    = ">=0.0.6"
+# ── Monitoring ──
+prometheus-client   = ">=0.17.0"
 
 [tool.poetry.scripts]
 ouroboros = "ouroboros.cli:cli"
@@ -45,7 +83,18 @@ ouroboros = "ouroboros.cli:cli"
 requires      = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+# ── Also support plain `pip install .` via PEP 621 ──
+[project]
+name = "ouroboros-sdk"
+version = "1.1.0"
+description = "Production Security Automation: ANY Git repo → Fixes + PRs + Docs"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+
+[project.scripts]
+ouroboros = "ouroboros.cli:cli"
+
 [tool.poetry.group.dev.dependencies]
-pytest        = ">=7.4.0"
+pytest         = ">=7.4.0"
 pytest-asyncio = ">=0.21.0"
-black         = ">=23.0.0"
+black          = ">=23.0.0"

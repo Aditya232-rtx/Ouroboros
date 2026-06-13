@@ -23,10 +23,22 @@ logger = logging.getLogger("ouroboros.core")
 
 # ---------------------------------------------------------------------------
 # Ensure the project root is on sys.path so ``src.*`` imports work.
+# This handles 3 install scenarios:
+#   1. Running from cloned repo (src/ is sibling of ouroboros/)
+#   2. pip install from wheel (src/ is installed as a package)
+#   3. pip install -e . (editable — src/ in original location)
 # ---------------------------------------------------------------------------
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+# Also check if src/ is inside the installed package (wheel scenario)
+_INSTALLED_SRC = Path(__file__).resolve().parent.parent
+for _candidate in [_PROJECT_ROOT, _INSTALLED_SRC, Path.cwd()]:
+    if (_candidate / "src" / "__init__.py").exists():
+        if str(_candidate) not in sys.path:
+            sys.path.insert(0, str(_candidate))
+        break
 
 
 class Ouroboros:

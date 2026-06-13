@@ -25,9 +25,9 @@ def test_import():
 
 
 def test_version():
-    """Version string must be 1.0.0."""
+    """Version string must be 1.1.0."""
     import ouroboros
-    assert ouroboros.__version__ == "1.0.0"
+    assert ouroboros.__version__ == "1.1.0"
 
 
 def test_cli_import():
