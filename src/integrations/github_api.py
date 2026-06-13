@@ -333,5 +333,42 @@ class GitHubClient:
             raise
 
 
+    def post_pr_comment(
+        self,
+        repo_full_name: str,
+        pr_number: int,
+        body: str
+    ) -> Dict[str, Any]:
+        """
+        Post a comment on a pull request.
+        
+        Args:
+            repo_full_name: Repository in format "owner/repo"
+            pr_number: Pull request number
+            body: Comment body (Markdown supported)
+        
+        Returns:
+            Comment details {comment_id, comment_url}
+        """
+        if not self.client:
+            raise ValueError("GitHub client not initialized")
+        
+        logger.info(f"Posting comment on PR #{pr_number} in {repo_full_name}")
+        
+        try:
+            repo = self.client.get_repo(repo_full_name)
+            issue = repo.get_issue(pr_number)  # PRs are issues in GitHub API
+            comment = issue.create_comment(body)
+            
+            logger.info(f"Posted comment #{comment.id} on PR #{pr_number}")
+            return {
+                "comment_id": comment.id,
+                "comment_url": comment.html_url
+            }
+        except GithubException as e:
+            logger.error(f"Failed to post PR comment: {e}")
+            raise
+
+
 # Global instance
 github_client = GitHubClient()

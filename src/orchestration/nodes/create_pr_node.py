@@ -48,6 +48,72 @@ def _apply_fixes_to_repo(repo_path: Path, state: OuroborosState) -> int:
     return files_written
 
 
+def _post_fix_prompt_comments(state: OuroborosState, repo_full_name: str) -> None:
+    """
+    Post a single PR comment containing all fix prompts for every verified fix.
+    Each fix prompt is a self-contained instruction that can reproduce the patch.
+    """
+    pr_number = state.get("pr_number", 0)
+    if not pr_number:
+        return
+
+    verified_ids = {
+        r.get("vulnerability_id")
+        for r in state.get("verification_results", [])
+        if r.get("verified")
+    }
+
+    prompt_sections: list[str] = []
+
+    for fix_result in state.get("fixes", []):
+        vuln_id = fix_result.get("vulnerability_id", "unknown")
+        if vuln_id not in verified_ids:
+            continue
+
+        selected_idx = fix_result.get("selected_fix", 1) - 1
+        fix_options = fix_result.get("fixes", [])
+
+        if not fix_options or selected_idx < 0 or selected_idx >= len(fix_options):
+            continue
+
+        selected_fix = fix_options[selected_idx]
+        fix_prompt = selected_fix.get("fix_prompt", "")
+        file_path = selected_fix.get("code_diff", {}).get("file", "unknown")
+        approach = selected_fix.get("approach", "")
+        reasoning = selected_fix.get("reasoning", "")
+
+        # Build the section even when the LLM didn't return a fix_prompt
+        if not fix_prompt:
+            fix_prompt = (
+                f"In `{file_path}`, fix the vulnerability ({vuln_id}) using the "
+                f"**{approach}** approach. {reasoning[:300]}"
+            )
+
+        prompt_sections.append(
+            f"### 🔧 `{vuln_id}` — `{file_path}`\n\n"
+            f"**Approach:** {approach}\n\n"
+            f"**Fix Prompt (reusable):**\n"
+            f"> {fix_prompt}\n"
+        )
+
+    if not prompt_sections:
+        return
+
+    comment_body = (
+        "## 🤖 Ouroboros Fix Prompts\n\n"
+        "The prompts below can be given to any developer or AI assistant to **reproduce the exact same patches** "
+        "applied in this PR.\n\n"
+        + "\n---\n\n".join(prompt_sections)
+        + "\n\n---\n*Posted automatically by Ouroboros AI*"
+    )
+
+    try:
+        github_client.post_pr_comment(repo_full_name, pr_number, comment_body)
+        logger.info(f"Posted fix prompt comment on PR #{pr_number}")
+    except Exception as e:
+        logger.warning(f"Failed to post fix prompt comment: {e}")
+
+
 async def create_pr_node(state: OuroborosState) -> OuroborosState:
     """
     Node 8: Create GitHub PR with verified fixes.
@@ -156,6 +222,9 @@ async def create_pr_node(state: OuroborosState) -> OuroborosState:
         state["current_phase"] = "pr_created"
 
         logger.info(f"✅ PR created: {state.get('pr_url')}")
+
+        # ── Post fix prompts as PR comments ─────────────────────────
+        _post_fix_prompt_comments(state, repo_full_name)
 
     except Exception as e:
         logger.error(f"PR creation failed: {e}")

@@ -38,6 +38,7 @@ class FixOption(BaseModel):
     confidence: float
     recommendation: str  # STRONG_ACCEPT|ACCEPT|WEAK_ACCEPT|REJECT
     reasoning: str = ""
+    fix_prompt: str = ""  # Reusable prompt that reproduces this exact fix
 
 
 class BLUEAgentInput(AgentInput):
@@ -164,7 +165,8 @@ For each vulnerability, provide:
 2. **Fix Approach**: The security pattern being applied
 3. **Code Diff**: Before/After with line numbers and context
 4. **Test Strategy**: How to verify the fix works and doesn't break functionality
-5. **Confidence Score**: 0-100 based on fix certainty and testing coverage"""
+5. **Confidence Score**: 0-100 based on fix certainty and testing coverage
+6. **Fix Prompt**: A self-contained, reusable prompt (3-8 sentences) that any developer or AI can follow to reproduce this EXACT fix from scratch. Include: the file path, the vulnerability type, the specific insecure pattern to find, the exact secure replacement pattern to apply, and any imports or dependencies needed. This prompt must be precise enough that following it produces an identical patch."""
 
         
         # Fix templates by vulnerability type (fallback when LLM fails)
@@ -526,10 +528,14 @@ Brief explanation.
 ### EXPLANATION
 What this fix does.
 
+### FIX PROMPT
+A self-contained prompt (3-8 sentences) that any developer or AI can follow to reproduce this EXACT fix from scratch. Include: file path, vulnerability type, the insecure pattern to find, the exact secure replacement to apply, and any imports needed.
+
 IMPORTANT:
 - Generate 2 MEANINGFULLY DIFFERENT options (conservative vs balanced)
 - ALL fixes MUST pass safety gates (no eval/exec/shell, no hardcoded secrets)
-- FIXED CODE must be complete and working (not pseudocode)"""
+- FIXED CODE must be complete and working (not pseudocode)
+- Each option MUST include a FIX PROMPT section"""
         
         # Add retry context if previous fix failed verification
         retry_feedback = vuln_data.get('retry_feedback', '')
@@ -595,7 +601,8 @@ IMPORTANT:
                         safety_gates={},
                         confidence=0.8 if option_num == 2 else (0.7 if option_num == 1 else 0.9),
                         recommendation="PENDING",
-                        reasoning=fix_data.get("reasoning", "")
+                        reasoning=fix_data.get("reasoning", ""),
+                        fix_prompt=fix_data.get("fix_prompt", "")
                     )
                     fixes.append(fix)
                     self.logger.info(f"Generated Option {option_num}: {approaches[option_num-1]}")
@@ -696,6 +703,21 @@ IMPORTANT:
         if desc_match:
             result["description"] = desc_match.group(1).strip()[:200]
         
+        # Extract FIX PROMPT section
+        fix_prompt_match = re.search(
+            r'(?:###?\s*(?:FIX\s*PROMPT|REPRODUCTION\s*PROMPT|REUSABLE\s*PROMPT)[^\n]*\n)(.*?)(?=###|\Z)',
+            response, re.IGNORECASE | re.DOTALL
+        )
+        if fix_prompt_match:
+            result["fix_prompt"] = fix_prompt_match.group(1).strip()[:800]
+        else:
+            # Auto-generate a fix prompt from the parsed data
+            result["fix_prompt"] = (
+                f"In file `{result['file']}`, fix the {vuln_type} vulnerability. "
+                f"Replace the insecure pattern with the secure version. "
+                f"{result.get('reasoning', '')[:200]}"
+            )
+
         # Validate we have actual fix code
         if not result["after"] or len(result["after"]) < 5:
             self.logger.warning("No valid fix code extracted")
@@ -1095,7 +1117,14 @@ def internal_error(error):
             safety_gates={},
             confidence=0.7,  # Moderate confidence for template fix
             recommendation="WEAK_ACCEPT",
-            reasoning=f"Root cause: {root_cause}. Template-based defense-in-depth fix applied."
+            reasoning=f"Root cause: {root_cause}. Template-based defense-in-depth fix applied.",
+            fix_prompt=(
+                f"In file `{file_path}`, fix the {vuln_type} vulnerability using a defense-in-depth approach. "
+                f"Root cause: {root_cause} "
+                f"Apply the **{approach}** pattern: {hint}. "
+                f"Ensure the fix includes input validation at the entry point, "
+                f"uses safe APIs for the core operation, and adds logging for detection."
+            )
         )
     
     def _create_default_fix(self, vuln_data: Dict[str, Any]) -> FixOption:
