@@ -1,7 +1,63 @@
-# Ouroboros AI - Autonomous Security System
+# 🔒 Ouroboros AI — Autonomous Security System & SDK
 
 **Version:** 1.0.0  
-**Status:** In Development
+**Status:** Production
+
+> **Any GitHub repo → vulnerability scan → automated fixes → GitHub PR → PDF report**
+> Setup time: under 3 minutes.
+
+---
+
+## 🚀 SDK Quick Start
+
+```bash
+# 1. Install (from source)
+pip install poetry && poetry install && poetry build
+pip install dist/ouroboros_sdk-1.0.0-py3-none-any.whl
+
+# 2. Configure (add your GitHub token)
+cp config.example.yaml config.yaml
+nano config.yaml          # paste token on line 8
+
+# 3. Scan any repo
+ouroboros scan --repo https://github.com/your-org/your-app
+```
+
+**That's it.** Ouroboros will:
+- Clone the target repo
+- Detect security vulnerabilities (Semgrep + Checkov + Trivy + LLM SAST)
+- Generate production-safe patches (BLUE Agent + Safety Gates)
+- Verify fixes via RED re-attack loop
+- Open a GitHub PR with the fixes
+- Save a PDF security report locally
+
+### Python API
+
+```python
+import asyncio
+from ouroboros import Ouroboros
+
+async def main():
+    ouro   = Ouroboros("config.yaml")
+    result = await ouro.scan("https://github.com/your-org/your-app")
+    print(f"PR: {result['pr_url']}")
+    print(f"Vulns: {result['vulnerabilities_found']}")
+    print(f"Fixes: {result['fixes_generated']}")
+
+asyncio.run(main())
+```
+
+### CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `ouroboros scan -r <url>` | One-shot scan → fixes → PR → docs |
+| `ouroboros scan -r <url> -p deep` | Deep scan with privesc + lateral movement |
+| `ouroboros scan -r <url> --no-pr` | Scan only, no PR creation |
+| `ouroboros watch -r <url> -i 300` | Continuous monitoring every 5 min |
+| `ouroboros info` | Print SDK and environment info |
+
+---
 
 ## Overview
 

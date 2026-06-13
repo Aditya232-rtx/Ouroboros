@@ -1,0 +1,16 @@
+{# Jinja2 template — rendered by ouroboros/fixes.py #}
+{# Variables: vuln, file_content, file_path            #}
+
+# Ouroboros Auto-Fix: API Hardening
+# File   : {{ file_path }}
+# Finding: {{ vuln.id }} ({{ vuln.severity }})
+
+# ── ORIGINAL (excerpt) ───────────────────────────────
+# {{ vuln.description }}
+
+# ── RECOMMENDED FIX ──────────────────────────────────
+# Ensure all endpoints validate authentication tokens.
+# Add rate-limiting headers.
+# Use parameterised queries for any DB calls.
+
+{{ file_content }}
