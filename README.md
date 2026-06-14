@@ -1,7 +1,9 @@
 # 🔒 Ouroboros AI — Autonomous Security System & SDK
 
-**Version:** 1.1.0  
-**Status:** Production
+[![Version](https://img.shields.io/badge/version-1.1.0-blue)](https://github.com/Aditya232-rtx/Ouroboros/releases)
+[![License](https://img.shields.io/badge/license-Apache--2.0-green)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-yellow)](https://python.org)
+[![Status](https://img.shields.io/badge/status-production-brightgreen)]()
 
 > **Any GitHub repo → vulnerability scan → automated fixes → GitHub PR → PDF report**
 > Setup time: under 3 minutes.
@@ -103,75 +105,97 @@ Ouroboros AI is an autonomous security system that discovers, fixes, and verifie
 
 ## Key Features
 
-- **🔴 RED Agent (WhiteRabbitNeo-7B)**: Discovers vulnerabilities with <5% false positive rate
-- **🔵 BLUE Agent (DeepSeek-R1)**: Generates secure fixes with chain-of-thought reasoning
-- **📄 DOCUMENTATION Agent (Phi-3.5)**: Creates live Google Docs reports automatically
-- **⚖️ GOVERNANCE Agent (Phi-3.5)**: Policy-based risk evaluation and prioritization
-- **📋 AUDIT Agent (Phi-3.5)**: Immutable compliance logging (SOC2, ISO27001, GDPR)
+- **🔴 RED Agent**: Discovers vulnerabilities with advanced scanning (Semgrep + Checkov + Trivy + LLM SAST)
+- **🔵 BLUE Agent**: Generates secure fixes with chain-of-thought reasoning & fix-prompt PR comments
+- **📄 DOCUMENTATION Agent**: Creates live Google Docs reports & PDF exports automatically
+- **⚖️ GOVERNANCE Agent**: Policy-based risk evaluation and prioritization (OPA)
+- **📋 AUDIT Agent**: Immutable compliance logging (SOC2, ISO27001, GDPR) via immudb
 - **✅ Verification Loop**: RED re-attacks BLUE's fixes to prove they work
-- **⏱️ Fast**: Repository URL → PR in <2 hours (vs industry 70 days)
+- **🔁 Fix Prompts**: Each PR includes per-vulnerability developer guidance comments
+- **📦 SDK & CLI**: `pip install .` → `ouroboros scan --repo <url>` — scan any repo in one command
+- **⏱️ Fast**: Repository URL → verified PR in minutes (vs industry avg 70 days)
 
 ## Architecture
 
 ```
-User → FastAPI → LangGraph Orchestrator
-                      ↓
-    RED (Scan) → DOC (Report) → GOVERNANCE (Prioritize)
-                      ↓
-             BLUE (Generate Fixes)
-                      ↓
-            RED (Verify Fixes) ←─┐
-                      ↓           │
-            All Verified?         │
-                ├─ No ───────────┘
-                └─ Yes
-                      ↓
-           DOC (Final Report) → Create PR
-                      ↓
-              AUDIT (Log Everything)
+User → FastAPI / CLI → LangGraph Orchestrator
+                            ↓
+      RED (Scan) → DOC (Initial Report) → GOVERNANCE (Prioritize)
+                            ↓
+                   BLUE (Generate Fixes + Fix Prompts)
+                            ↓
+                  RED (Verify Fixes) ←─┐
+                            ↓           │
+                  All Verified?         │
+                      ├─ No ───────────┘
+                      └─ Yes
+                            ↓
+             DOC (Final Report) → Create PR (+ fix-prompt comments)
+                            ↓
+                    AUDIT (Log Everything)
 ```
 
 ## Technology Stack
 
 ### Backend
-- **Orchestration**: LangGraph, LangChain
-- **Models**: WhiteRabbitNeo-7B, DeepSeek-R1-7B, Phi-3.5-mini
-- **Scanning**: PyRIT, Nuclei, Semgrep, Checkov, CodeQL
-- **Documentation**: Google Workspace MCP
+- **Orchestration**: LangGraph StateGraph, LangChain
+- **LLM Runtime**: Ollama (local inference — qwen2.5-coder, deepseek, phi3)
+- **Models**: WhiteRabbitNeo-7B, DeepSeek-R1-7B, Phi-3.5-mini (GGUF / Ollama)
+- **Scanning**: Semgrep, Checkov, Trivy, LLM-based SAST
+- **Documentation**: Google Workspace MCP, PDF report generation
 - **Governance**: OPA (Open Policy Agent)
 - **Audit**: immudb (immutable ledger)
-- **API**: FastAPI
-- **Database**: PostgreSQL, Redis
+- **API**: FastAPI (port 8000)
+- **Database**: PostgreSQL, Redis, ChromaDB (vector store)
 
 ### Frontend
 - **Framework**: Next.js 16.1.4
 - **UI Library**: React 19.2.3
-- **Styling**: Lightswind CSS
+- **Styling**: Tailwind CSS
 - **Fonts**: Inter (UI) & JetBrains Mono (code)
 - **Language**: TypeScript
+
+### SDK & CLI
+- **Package**: `ouroboros-sdk` (pip-installable)
+- **CLI**: `ouroboros scan` / `ouroboros watch` / `ouroboros info`
+- **Build**: Poetry 2.3+ / PEP 621 (`pip install .`)
+- **Platforms**: Windows, macOS, Linux
 
 ## Project Structure
 
 ```
-ouroboros/
-├── config/           # Configuration files
+Ouroboros/
+├── ouroboros/         # SDK package (pip install .)
+│   ├── __init__.py    # Version & public API
+│   ├── __main__.py    # python -m ouroboros support
+│   ├── cli.py         # CLI entry-point (ouroboros scan/watch/info)
+│   └── core.py        # Ouroboros class — Python API
+├── config/            # Configuration files
 ├── src/
-│   ├── agents/       # Agent implementations
-│   ├── models/       # Model loading
-│   ├── orchestration/# LangGraph workflow
-│   ├── verification/ # RED-BLUE loop
-│   ├── tools/        # Security scanning tools
-│   ├── integrations/ # GitHub, Google Workspace
-│   ├── security/     # Safety gates
-│   ├── api/          # FastAPI interface
-│   └── utils/        # Utilities
-├── frontend/         # Next.js frontend application
-│   ├── app/          # Next.js app router
-│   ├── components/   # React components
-│   └── public/       # Static assets
-├── models/           # GGUF model files (11.9 GB)
-├── tests/            # Unit, integration, E2E tests
-└── context/          # Complete design documentation
+│   ├── agents/        # Agent implementations (RED, BLUE, DOC, GOV, AUDIT)
+│   ├── models/        # Model loading & Ollama integration
+│   ├── orchestration/ # LangGraph StateGraph workflow & nodes
+│   ├── verification/  # RED-BLUE verification loop
+│   ├── tools/         # Security scanning tools (Semgrep, Checkov, Trivy)
+│   ├── integrations/  # GitHub API, Google Workspace MCP
+│   ├── security/      # Safety gates & sandbox enforcement
+│   ├── api/           # FastAPI interface
+│   └── utils/         # Shared utilities
+├── frontend/          # Next.js 16 War Room Dashboard
+│   ├── app/           # Next.js app router
+│   ├── components/    # React components
+│   └── public/        # Static assets
+├── neurosploit/       # NeuroSploit attack simulation framework
+├── models/            # Local GGUF model files (optional)
+├── tests/             # Unit, integration, E2E, SDK tests
+├── scripts/           # Utility & benchmark scripts
+├── monitoring/        # Prometheus + Grafana config
+├── infra/             # Kubernetes & Terraform deployment
+├── context/           # Complete design documentation
+├── pyproject.toml     # SDK package config (Poetry / PEP 621)
+├── setup.py           # Fallback installer (pip install .)
+├── install.bat        # Windows one-click installer
+└── install.sh         # macOS / Linux one-click installer
 ```
 
 ## Installation
@@ -179,10 +203,10 @@ ouroboros/
 ### Prerequisites
 
 - Python 3.11+
-- Node.js 20+
-- GPU with 8GB+ VRAM (RTX 4060 Ti or better recommended)
+- Node.js 20+ (for frontend)
+- [Ollama](https://ollama.com) (recommended) or GPU with 8GB+ VRAM for local GGUF models
 - Docker and Docker Compose
-- 32GB RAM recommended
+- 16GB RAM minimum (32GB recommended)
 
 ### Backend Setup
 
@@ -235,35 +259,66 @@ ouroboros/
 
 ## Models
 
-All required GGUF models (11.9 GB total):
+Ouroboros supports two model backends:
 
-- **WhiteRabbitNeo-7B-v1.5a-Q4_K_M.gguf** (4.08 GB) - RED Agent
-- **DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf** (4.68 GB) - BLUE Agent  
-- **Phi-3.5-mini-instruct-Q6_K.gguf** (3.14 GB) - Support Agents
+### Ollama (recommended — zero setup)
+
+```bash
+# Install Ollama: https://ollama.com
+ollama pull qwen2.5-coder:1.5b   # lightweight, fast
+ollama pull deepseek-r1:7b        # chain-of-thought reasoning
+ollama pull phi3:mini              # support agents
+```
+
+See [docs/OLLAMA_SETUP.md](docs/OLLAMA_SETUP.md) for advanced configuration.
+
+### Local GGUF (optional — full offline)
+
+Download the GGUF files (~11.9 GB total) into the `models/` directory:
+
+| Model | Size | Agent |
+|-------|------|-------|
+| WhiteRabbitNeo-7B-v1.5a-Q4_K_M.gguf | 4.08 GB | RED |
+| DeepSeek-R1-Distill-Qwen-7B-Q4_K_M.gguf | 4.68 GB | BLUE |
+| Phi-3.5-mini-instruct-Q6_K.gguf | 3.14 GB | DOC / GOV / AUDIT |
 
 ## Usage
 
-### Command Line
+### CLI (recommended)
 
 ```bash
-# Test model loading
-python -m scripts.test_models
+# Scan a repo → fixes → PR → report
+ouroboros scan --repo https://github.com/user/repo
 
-# Run full scan
-python -m src.main --repo https://github.com/user/repo
+# Deep scan with privilege escalation checks
+ouroboros scan --repo https://github.com/user/repo --profile deep
+
+# Scan only (no PR)
+ouroboros scan --repo https://github.com/user/repo --no-pr
+
+# Continuous monitoring (every 5 min)
+ouroboros watch --repo https://github.com/user/repo --interval 300
+
+# Environment info
+ouroboros info
 ```
 
-### API
+### API Server
 
 ```bash
-# Start API server
+# Start backend
 uvicorn src.api.main:app --reload --port 8000
 
-# Submit scan
+# Start frontend (in another terminal)
+cd frontend && npm run dev
+
+# Submit a scan via API
 curl -X POST http://localhost:8000/api/scan \
   -H "Content-Type: application/json" \
   -d '{"repo_url": "https://github.com/user/repo"}'
 ```
+
+Open [http://localhost:3000](http://localhost:3000) for the War Room Dashboard.
 
 ## Development
 
@@ -315,25 +370,42 @@ mypy src/
 
 ## Roadmap
 
-### V1 (Current - In Development)
+### V1 (Current — Complete ✅)
 - [x] Foundation and project structure
-- [/] Core agents (RED, BLUE)
-- [ ] Verification loop
-- [ ] Support agents (DOC, GOVERNANCE, AUDIT)
-- [ ] LangGraph orchestration
-- [ ] FastAPI interface
-- [ ] GitHub integration
-- [ ] Frontend War Room Dashboard
+- [x] Core agents (RED, BLUE)
+- [x] RED → BLUE verification loop
+- [x] Support agents (DOC, GOVERNANCE, AUDIT)
+- [x] LangGraph orchestration (full StateGraph pipeline)
+- [x] FastAPI interface + frontend proxy
+- [x] GitHub integration (PR creation, fix-prompt comments)
+- [x] Frontend War Room Dashboard (Next.js 16)
+- [x] Ouroboros SDK (`pip install .` + CLI)
+- [x] Safety gates & sandbox enforcement
+- [x] Immutable audit logging (immudb)
+- [x] PDF security report generation
 
-### V2 (Future)
-- Auto-merge for low-risk fixes
-- Real-time monitoring
-- Multi-repository scanning
-- Advanced compliance reporting
+### V2 (Planned)
+- Auto-merge for low-risk fixes (configurable risk threshold)
+- Real-time monitoring & continuous watch mode
+- Multi-repository batch scanning
+- Advanced compliance reporting (SOC2 / ISO27001 / GDPR export)
+- NeuroSploit advanced attack simulation integration
+- Model fine-tuning pipeline for domain-specific scanning
 
 ## Contributing
 
-This is a private/internal project. Contact the security team for contribution guidelines.
+Contributions are welcome! Ouroboros is licensed under **Apache-2.0**.
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/my-feature`)
+3. Commit your changes (`git commit -m 'feat: add my feature'`)
+4. Push to the branch (`git push origin feature/my-feature`)
+5. Open a Pull Request
+
+Please ensure:
+- All existing tests pass (`pytest tests/`)
+- New features include tests
+- Code follows the existing style (`black`, `flake8`, `mypy`)
 
 ## License
 
@@ -341,9 +413,9 @@ Apache-2.0 — See [LICENSE](LICENSE) for details.
 
 ## Contact
 
-- **Team**: Ouroboros AI Security Team
-- **Documentation**: See `context/` folder
-- **Issues**: Internal issue tracker
+- **Repository**: [github.com/Aditya232-rtx/Ouroboros](https://github.com/Aditya232-rtx/Ouroboros)
+- **Issues**: [GitHub Issues](https://github.com/Aditya232-rtx/Ouroboros/issues)
+- **Documentation**: See `context/` and `docs/` folders
 
 ---
 
