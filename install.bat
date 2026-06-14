@@ -104,16 +104,27 @@ echo  [OK] pip upgraded.
 REM ── Step 4: Install the SDK ───────────────────────────────────
 echo  [4/5] Installing Ouroboros SDK...
 
-REM Prefer wheel if it exists
+REM Check if a pre-built wheel exists in dist/
 set "WHEEL="
-for %%f in (dist\ouroboros_sdk-*.whl) do set "WHEEL=%%f"
+if exist dist\ (
+    for %%f in (dist\ouroboros_sdk-*.whl) do (
+        if exist "%%f" set "WHEEL=%%f"
+    )
+)
 
 if defined WHEEL (
-    echo  [OK] Installing from wheel: %WHEEL%
+    echo  [OK] Installing from pre-built wheel: %WHEEL%
     pip install "%WHEEL%" 2>&1
-) else (
+) else if exist setup.py (
     echo  [OK] Installing from source (pip install .)
     pip install . 2>&1
+) else if exist pyproject.toml (
+    echo  [OK] Installing from source (pip install .)
+    pip install . 2>&1
+) else (
+    echo  [ERROR] No wheel, setup.py, or pyproject.toml found.
+    echo  Make sure you are running this from the Ouroboros repo root.
+    exit /b 1
 )
 
 if %ERRORLEVEL% neq 0 (
