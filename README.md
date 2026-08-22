@@ -18,6 +18,8 @@ Most security tooling stops at "here's a list." Ouroboros closes the loop: scan 
 
 ## Quick start
 
+> **Important:** Ouroboros brings its own API keys — it doesn't ship with or share anyone else's. You'll need your own LLM provider key (for the scan engine and the remediation agent) and your own GitHub authentication before fixes can be opened as PRs. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) for exactly what to set.
+
 ```bash
 git clone <this-repo>
 cd ouroboros
