@@ -2,9 +2,11 @@
 
 **Find real vulnerabilities. Fix them from your phone. Prove the fix worked.**
 
-Ouroboros is an autonomous application-security platform. Point it at a target — a live URL or a GitHub repository — and it scans for exploitable vulnerabilities, drafts the fix, gets your sign-off over WhatsApp or Slack, opens the pull request, and re-attacks the patched code to prove the fix actually holds.
+## Overview
 
-Most security tooling stops at "here's a list." Ouroboros closes the loop: scan → triage → approve → patch → verify → remember.
+Ouroboros is an autonomous application-security platform: point it at a live URL or a GitHub repository and it scans for exploitable vulnerabilities, triages them on a live dashboard, and drives the entire remediation from chat. Approve a fix with a WhatsApp reply from your phone — no dashboard, no laptop required — and it patches the code, opens the pull request, and re-attacks the patched path to prove the exploit is actually closed, not just assumed fixed. Every time a human overrides the system — a false positive, a declined PR — that reason is captured against the exact finding, so the next scan of the same target gets quieter and smarter instead of repeating itself.
+
+Most security tooling stops at "here's a list." Ouroboros closes the loop: scan → triage → approve from your phone → patch → verify → remember.
 
 ## What it does
 
@@ -36,6 +38,21 @@ docs/           architecture, API reference, deployment, full workflow walkthrou
 ```
 
 Full system design: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| **Frontend** | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| **Auth** | Supabase |
+| **Agent graph & live views** | React Flow (`@xyflow/react`), Dagre for graph layout |
+| **WhatsApp pairing UI** | `qrcode.react` |
+| **Backend** | FastAPI (Python), Uvicorn, Pydantic |
+| **Live updates** | Server-Sent Events (`sse-starlette`), with a polling fallback |
+| **Sandboxing** | Docker — every scan target runs isolated |
+| **Finding format** | SARIF 2.1.0 |
+| **Remediation channels** | WhatsApp (companion-device pairing), Slack (Socket Mode) |
+| **Version control integration** | GitHub (device-flow auth, PR automation via `gh`) |
 
 ## Documentation
 
