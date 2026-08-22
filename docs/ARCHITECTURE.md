@@ -2,10 +2,8 @@
 
 ## Components
 
-```
 <img width="1024" height="559" alt="image" src="https://github.com/user-attachments/assets/3eddfb2c-abbf-4bed-882a-12e8f8b00a7e" />
 
-```
 
 ### Frontend
 
