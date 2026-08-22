@@ -1,0 +1,61 @@
+---
+title: "Coding Agents"
+description: "Use Fang from Claude Code, Cursor, Codex, and other AI agents"
+---
+
+Fang is built to be driven by AI coding agents. Install the official agent skills and your agent knows how to run pentests, remediate findings, and wire Fang into CI.
+
+## Install the Skills
+
+Works with any agent that supports the open [SKILL.md standard](https://agentskills.io) — Claude Code, Cursor, Codex, Gemini CLI, OpenCode, and dozens more:
+
+```bash
+npx skills add Aditya232-rtx/fang
+```
+
+| Skill | What your agent learns |
+|-------|------------------------|
+| `penetration-testing-with-fang` | Run headless scans against code, URLs, domains, or IPs — self-hosted CLI or managed cloud — with budget caps, and read the results |
+| `managed-pentesting-with-fang` | Drive the managed [app.fang.ai](https://app.fang.ai) platform over REST — no local Docker or LLM key needed |
+| `fix-security-vulnerabilities-with-fang` | Triage findings, fix root causes, and re-run Fang to verify each fix |
+| `ci-security-scanning-with-fang` | Add PR security scanning to GitHub Actions or any CI (self-hosted CLI or managed app) |
+
+Install a single skill with `npx skills add Aditya232-rtx/fang --skill penetration-testing-with-fang`, or use one without installing:
+
+```bash
+npx skills use Aditya232-rtx/fang@penetration-testing-with-fang | claude
+```
+
+## Two ways to run — self-hosted or managed
+
+Both use the same engine and produce the same validated findings and SARIF, so agents can pick per situation or combine them:
+
+- **Open-source CLI (self-hosted)** — runs locally in a Docker sandbox with your own LLM key. Free, fully local, air-gap capable. Best for local dev loops and full control.
+- **Managed cloud** — runs on Fang's infrastructure via the [app.fang.ai REST API](https://docs.app.fang.ai). No Docker, no LLM key, no local install; adds team dashboards, scheduling, PR reviews, and downloadable PDF/DOCX reports (Enterprise plan). Best in sandboxed/CI environments and for teams. Create an API token under **Settings → API Access**; the `managed-pentesting-with-fang` skill has the full flow.
+
+## Agent-Friendly Interfaces
+
+Everything an agent needs is machine-readable:
+
+- **Headless CLI** — `fang -n` runs without the TUI and exits with `0` (clean), `1` (error), or `2` (vulnerabilities found).
+- **REST API** — the managed platform exposes a documented [OpenAPI](https://docs.app.fang.ai/openapi.json) at `https://app.fang.ai/api/v1` (scans, vulnerabilities, assets, PR reviews, schedules, webhooks) with bearer tokens and scopes.
+- **Structured results** — every run writes `vulnerabilities.json`, `vulnerabilities.csv`, `findings.sarif` (SARIF 2.1.0), and per-finding Markdown under `fang_runs/<run-name>/`; the cloud exposes the same as JSON plus SARIF export.
+- **Budget controls** — `--max-budget` and `--max-turns` give agents hard cost/time caps.
+- **`AGENTS.md`** — the [repository's agent guide](https://github.com/Aditya232-rtx/fang/blob/main/AGENTS.md) with a quick reference.
+- **`llms.txt`** — this documentation is indexed at [docs.fang.ai/llms.txt](https://docs.fang.ai/llms.txt) and fully exported at [docs.fang.ai/llms-full.txt](https://docs.fang.ai/llms-full.txt); every page is also available as Markdown by appending `.md` to its URL.
+
+## Example Prompts
+
+Once the skills are installed, prompts like these just work:
+
+```text
+Pentest this repo with Fang (quick mode, $10 budget) and summarize the findings.
+```
+
+```text
+Fix all critical and high findings from the last Fang run, then re-scan to verify.
+```
+
+```text
+Add Fang security scanning to our GitHub Actions so every PR gets tested.
+```

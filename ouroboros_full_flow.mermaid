@@ -1,0 +1,127 @@
+flowchart TD
+
+    subgraph Frontend["Public Frontend (strix.ai-style) — anonymous, no login"]
+        direction TB
+        UrlIn[User enters target URL]
+        VulnReport[Vulnerability Report<br/>read-only: findings, severity, CVE/CWE]
+        FixAllBtn[Fix All button]
+    end
+
+    subgraph Gateway["Hermes Gateway — per-session connect step"]
+        direction TB
+        PhoneIn[User enters WhatsApp number<br/>auto-populates session allowlist]
+        SpinUp[Spin up isolated gateway<br/>session container]
+        QrPair[Render QR code<br/>hermes whatsapp pairing]
+        SelfChatLink[User scans with own phone:<br/>Settings -> Linked Devices]
+        SlackConnect["Connect Slack (optional)<br/>standard Add to Slack OAuth"]
+    end
+
+    subgraph WA["WhatsApp — user's own 'Message yourself' thread"]
+        direction TB
+        OuroChat[Ouro, running inside the<br/>self-chat thread]
+        GhAuth[GitHub App install link<br/>sent as a message, not a raw PAT]
+        ApprovalMsgs[Approval requests<br/>very-critical blocks / rest queues]
+        StatusMsgs[Status + fix updates<br/>+ escalation fallback if no Slack]
+        ReportOut[Final compliance report<br/>document attachment]
+    end
+
+    subgraph SlackEsc["Slack — connected escalation channel (optional, demoed live)"]
+        EscMsg["3-loop-exceeded escalation:<br/>finding + every attempted fix"]
+    end
+
+    subgraph Core["Ouro (forked Hermes, rebranded) — internal orchestration"]
+        direction TB
+        Research[Research Agent<br/>autonomous CVE/CWE monitoring]
+        PolicyCfg[(Do-not / allowed<br/>policy config)]
+        Gov[Governance Agent<br/>triage + severity routing]
+
+        subgraph Personas["Built-in Persona Subagents (internal reasoning profiles)"]
+            direction LR
+            PSoc[SOC Analyst<br/>persona]
+            PRed[Red Teamer<br/>persona]
+            PBlue[Blue Teamer<br/>persona]
+            PComp[Compliance Analyst<br/>persona]
+            PCiso[CISO<br/>persona]
+        end
+
+        Blue[Blue Agent<br/>draft + apply fix]
+        Compliance[Compliance Agent<br/>DPDP + SOC2 + ISO27001 mapping]
+    end
+
+    subgraph FangBox["Fang (standalone, rebranded Strix — external tool)"]
+        FangScan[fang --target app -n<br/>full scan]
+        FangVerify[fang --reattack &lt;finding-id&gt;<br/>single exploit-path verify]
+    end
+
+    subgraph Honcho["Honcho — shared memory + session store (self-hosted, Docker)"]
+        H1[(Postgres + pgvector)]
+        H2[(Redis)]
+        H3[Workspace: all agents + personas + gateway sessions]
+        H4[(Encrypted secrets:<br/>GitHub tokens, per-session Baileys auth keys)]
+    end
+
+    GitHub[(GitHub — App install + PR)]
+
+    %% Public scan flow (no auth needed)
+    UrlIn --> Core
+    Core -->|invoke| FangScan
+    FangScan -->|findings + PoCs| Core
+    Core -->|cross-reference vs Research| H3
+    Research -->|writes CVE/CWE observations| H3
+    Core --> VulnReport
+    VulnReport --> FixAllBtn
+
+    %% Gateway: per-session pairing
+    FixAllBtn --> PhoneIn
+    PhoneIn --> SpinUp
+    SpinUp --> QrPair
+    QrPair --> SelfChatLink
+    SelfChatLink -->|companion device linked, no opt-in<br/>message or template needed| H3
+    FixAllBtn -.optional.-> SlackConnect
+    SlackConnect -.token stored.-> H3
+    H3 --> OuroChat
+    H4 -.stores.-> SpinUp
+
+    %% GitHub access, collected inside the self-chat
+    OuroChat --> GhAuth
+    GhAuth -->|OAuth/App install flow, backend never<br/>sees raw PAT in chat text| GitHub
+    GitHub -->|installation token| H4
+
+    %% Governance + approvals happen in the self-chat thread
+    H3 --> Gov
+    Gov --> PolicyCfg
+    Gov --> Sev{Severity}
+    Sev -->|Very Critical| PCiso
+    Sev -->|Critical/High/Med/Low| PSoc
+    PCiso -->|immediate alert, blocks until approved| ApprovalMsgs
+    PSoc -->|queues for approval| ApprovalMsgs
+    ApprovalMsgs --> OuroChat
+    OuroChat -->|requester approves| Gov
+
+    %% Fix + verify loop (unchanged core mechanics)
+    Gov -->|approved| PBlue
+    PBlue --> Blue
+    Blue -->|fix applied, isolated branch| FangVerify
+    FangVerify --> Closed{Closed?}
+    Closed -->|No, loop < 3| Blue
+    Closed -->|No, loop = 3| EscBlue{Slack connected?}
+    EscBlue -->|Yes| EscMsg
+    EscBlue -->|No, fallback| StatusMsgs
+    Closed -->|Yes| PR[Push PR]
+    PR --> GitHub
+    PR --> StatusMsgs
+
+    %% Compliance + reporting
+    PR --> PComp
+    PComp --> Compliance
+    Compliance -->|DPDP + SOC2 + ISO27001<br/>mapped report| PCiso
+    Compliance -->|technical + plain-language<br/>findings/fix report| ReportOut
+    PCiso --> StatusMsgs
+    ReportOut --> OuroChat
+    OuroChat --> StatusMsgs
+    ReportOut -.mirrored to.-> VulnReport
+
+    %% Self-improvement
+    Compliance -.report updates re-enter.-> Gov
+    OuroChat -.outcome feedback.-> Core
+    EscMsg -.outcome feedback.-> Core
