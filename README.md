@@ -2,6 +2,8 @@
 
 **Find real vulnerabilities. Fix them from your phone. Prove the fix worked.**
 
+Uploading Sequence 01_1.mp4…
+
 ## Overview
 
 Ouroboros is an autonomous application-security platform: point it at a live URL or a GitHub repository and it scans for exploitable vulnerabilities, triages them on a live dashboard, and drives the entire remediation from chat. Approve a fix with a WhatsApp reply from your phone — no dashboard, no laptop required — and it patches the code, opens the pull request, and re-attacks the patched path to prove the exploit is actually closed, not just assumed fixed. Every time a human overrides the system — a false positive, a declined PR — that reason is captured against the exact finding, so the next scan of the same target gets quieter and smarter instead of repeating itself.
